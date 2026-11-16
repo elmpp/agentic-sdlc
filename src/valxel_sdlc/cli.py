@@ -125,6 +125,30 @@ def _verify_changes(log=None) -> int:
     return 1
 
 
+def _workspaces(args, engine=None) -> int:
+    """valxel workspaces owner <ws> --github LOGIN | list: bootstrapping, before anyone can sign in as admin."""
+    from .workspaces import WorkspaceError
+
+    ws = engine.services.workspaces
+    if args.action == "list":
+        names = sorted({e.workspace for e in engine.services.settings.registry.values()} | {
+            w["id"] for w in ws.store.list("workspace")})
+        for n in names:
+            owners = [m["github_login"] or m["email"] for m in ws.members(n) if m["role"] == "owner"]
+            print(f"{n:<28} products: {', '.join(ws.products(n)) or '-':<20} owners: {', '.join(owners) or 'none'}")
+        return 0
+    if not args.workspace or not (args.github or args.email):
+        print("Name the workspace and the owner's --github login or --email.", file=sys.stderr)
+        return 2
+    try:
+        m = ws.bootstrap_owner(args.workspace, {"name": args.name, "github_login": args.github, "email": args.email})
+    except WorkspaceError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"{m['name']} owns {args.workspace} and is in every approver group.")
+    return 0
+    
+    
 def _usage_context(args, engine=None) -> int:
     """valxel usage context: the ledger's context measurements (valxel_sdlc.context)."""
     from datetime import UTC, datetime, timedelta
@@ -356,6 +380,13 @@ def main(argv: list[str] | None = None, *, github=None) -> int:
     g.add_argument("product")
     c = sub.add_parser("changes", help="Check the production change log's hash chain (DATABASE_URL)")
     c.add_argument("action", choices=["verify"])
+    wk = sub.add_parser("workspaces", help="Give a workspace its first owner (an existing deployment's), or list them "
+                                           "(DATABASE_URL)")
+    wk.add_argument("action", choices=["owner", "list"])
+    wk.add_argument("workspace", nargs="?", default="")
+    wk.add_argument("--github", default="", help="The owner's GitHub login")
+    wk.add_argument("--email", default="", help="The owner's email")
+    wk.add_argument("--name", default="")
     us = sub.add_parser("usage", help="How full agents' context gets and where it goes, by week and role (DATABASE_URL)")
     us.add_argument("action", choices=["context"])
     us.add_argument("--product", default=None, help="Only this product")
@@ -485,6 +516,8 @@ def main(argv: list[str] | None = None, *, github=None) -> int:
         return _eval(args)
     if args.cmd == "pilot-report":
         return _pilot_report(args)
+    if args.cmd == "workspaces":
+        return _workspaces(args)
     if args.cmd == "usage":
         return _usage_context(args)
     if args.cmd == "changes":
