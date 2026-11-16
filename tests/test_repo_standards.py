@@ -34,7 +34,8 @@ def existing(gh: StubGitHub, repo: str, *, ghas: bool = True, files: bool = True
     platform's managed workflows, unless `workflows` is False: they have tests of their own)."""
     if workflows:
         for path, name in {".github/workflows/security.yml": "security.yml",
-                           ".github/workflows/secrets.yml": "governance-secrets.yml"}.items():
+                           ".github/workflows/secrets.yml": "governance-secrets.yml",
+                           ".github/scripts/report.py": "report.py"}.items():
             gh.files[(repo, "main", path)] = rs.standard_file(name)
     gh.repos[repo] = {"state": {"visibility": "public", "allow_squash_merge": True, "allow_merge_commit": True, "allow_rebase_merge": True,
                                 "delete_branch_on_merge": False, "default_branch": "main", "has_wiki": True,
@@ -363,6 +364,7 @@ def test_managed_workflows_that_differ_or_are_missing_come_back_by_pull_request(
     gh.files[(lane, "main", ".github/workflows/security.yml")] = "name: security\njobs: {}\n"  # someone trimmed it
     rep = rs.reconcile(gh, target(svc, lane), apply=False)
     assert [(d.area, d.item, d.have, d.fix) for d in rep.drift if d.area == "workflows"] == [
+        ("workflows", ".github/scripts/report.py", "missing", "apply"),
         ("workflows", ".github/workflows/security.yml", "differs", "apply")]
     # A governance repo has no code: only the secrets scan is managed there.
     grep = rs.reconcile(gh, target(svc, gov), apply=False)
@@ -370,13 +372,15 @@ def test_managed_workflows_that_differ_or_are_missing_come_back_by_pull_request(
 
     after = rs.reconcile(gh, target(svc, lane), apply=True)
     assert "managed files" in after.applied and after.ok
-    [pending] = [d for d in after.drift if d.area == "workflows"]
-    assert pending.fix == "pending" and "pull request" in pending.have
+    pending = [d for d in after.drift if d.area == "workflows"]
+    assert len(pending) == 2 and all(d.fix == "pending" and "pull request" in d.have for d in pending)
     pr = next(p for p in gh.prs.values() if p["repo"] == lane and p["branch"] == "valxel/managed-files")
     assert gh.files[(lane, "valxel/managed-files", ".github/workflows/security.yml")] == rs.standard_file("security.yml")
+    assert gh.files[(lane, "valxel/managed-files", ".github/scripts/report.py")] == rs.standard_file("report.py")
     assert "agentic-sdlc" in pr["body"]
     # Once it merges, the repo is on standard again.
     gh.files[(lane, "main", ".github/workflows/security.yml")] = rs.standard_file("security.yml")
+    gh.files[(lane, "main", ".github/scripts/report.py")] = rs.standard_file("report.py")
     assert not [d for d in rs.reconcile(gh, target(svc, lane), apply=False).drift if d.area == "workflows"]
 
 
@@ -406,3 +410,169 @@ def test_the_managed_workflows_are_prettier_clean():
     for name in ("security.yml", "governance-secrets.yml"):
         assert not [ln for ln in rs.standard_file(name).splitlines() if re.search(r"\S {2,}#", ln)], name
 
+
+
+def _report_module():
+    import importlib.util
+    from importlib.resources import files
+
+    path = files("valxel_sdlc") / "standard_files" / "report.py"
+    spec = importlib.util.spec_from_file_location("valxel_report", str(path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_report_py_is_managed_and_the_tools_own_copy_matches():
+    from pathlib import Path
+
+    std = rs.load_standards(Path("config/repos.yaml")) if hasattr(rs, "load_standards") else None
+    managed = (std or {}).get("managed_files") if isinstance(std, dict) else None
+    import yaml
+
+    managed = managed or yaml.safe_load(Path("config/repos.yaml").read_text())["defaults"]["managed_files"]
+    assert managed[".github/scripts/report.py"] == "report.py"
+    assert Path(".github/scripts/report.py").read_text() == rs.standard_file("report.py")
+
+
+def test_new_code_coverage_names_the_untested_lines(tmp_path):
+    import json
+
+    report = _report_module()
+    p = tmp_path / "new.json"
+    p.write_text(json.dumps({"total_num_lines": 40, "total_num_violations": 10, "src_stats": {
+        "src/app/orders.py": {"violation_lines": [12, 13, 14, 20]},
+        "src/app/api.py": {"violation_lines": []},
+        "src/main/java/acme/Pay.java": {"violation_lines": [3, 5, 6, 7, 8, 9]}}}))
+    state, text, detail = report.new_code(str(p), 80)
+    assert state == "failure" and text.startswith("Coverage on new code: 75.0% (at least 80%).")
+    assert "10 of 40 changed lines untested: orders.py 12-14, 20; Pay.java 3, 5-9" in text
+    assert "`src/app/orders.py`: lines 12-14, 20" in detail and "api.py" not in detail
+    assert report.new_code(str(p), 75)[0] == "success"
+    # What the quality gate reads from the status
+    from valxel_sdlc.quality.sources import _summary
+
+    assert _summary(text[:140])["coverage"] == 75.0
+    empty = tmp_path / "none.json"
+    empty.write_text(json.dumps({"total_num_lines": 0, "total_num_violations": 0, "src_stats": {}}))
+    assert report.new_code(str(empty), 80)[0] == "success"  # docs or config only
+    assert report.new_code(str(tmp_path / "missing.json"), 80)[0] == "failure"
+
+
+def test_a_low_new_code_coverage_status_fails_the_code_quality_suite(settings):
+    from valxel_sdlc.quality import SuiteResult, evaluate
+
+    spec = settings.quality.suites["code-quality"]
+    low = SuiteResult(suite="code-quality", kind="test", stage="pr", state="failed", repo="acme/web", coverage=62.0,
+                      message="code-quality / new code")
+    out = evaluate("pr", {"code-quality": spec}, [low], [])
+    assert out["status"] == "failed" and any("62.0% is below 80%" in r for r in out["test_failures"])
+    missing = evaluate("pr", {"code-quality": spec}, [], [])
+    assert missing["status"] == "failed"  # required: a repo that doesn't report it can't merge
+
+
+def test_report_py_reads_junit_jacoco_and_cobertura_and_refuses_xml_entities(tmp_path):
+    report = _report_module()
+    (tmp_path / "a.xml").write_text('<testsuites><testsuite tests="5" failures="1" errors="0" skipped="1"/>'
+                                    '<testsuite tests="3" failures="0" errors="1" skipped="0"/></testsuites>')
+    (tmp_path / "b.xml").write_text('<?xml version="1.0"?><testsuite tests="2" failures="0" skipped="0">'
+                                    '<testsuite tests="9"/></testsuite>')  # a root suite counts once
+    assert report.junit([str(tmp_path / "*.xml")]) == {"passed": 7, "failed": 2, "skipped": 1}
+    jac = tmp_path / "jacoco.xml"
+    jac.write_text('<?xml version="1.0"?><!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd">'
+                   '<report name="t"><package name="a"><counter type="LINE" missed="50" covered="50"/></package>'
+                   '<counter type="LINE" missed="1" covered="3"/></report>')
+    assert report.jacoco(str(jac)) == 75.0  # the report-level counter, not a package's
+    (tmp_path / "nolines.xml").write_text('<report name="t"><counter type="BRANCH" missed="1" covered="1"/></report>')
+    assert report.jacoco(str(tmp_path / "nolines.xml")) is None
+    cob = tmp_path / "coverage.xml"
+    cob.write_text('<?xml version="1.0"?><coverage line-rate="0.835" branch-rate="0"><packages/></coverage>')
+    assert round(report.cobertura(str(cob)), 1) == 83.5
+    evil = tmp_path / "evil.xml"
+    evil.write_text('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>')
+    with pytest.raises(ValueError, match="entities aren't allowed"):
+        report.elements(str(evil))
+
+
+def test_report_py_posts_only_over_https(tmp_path, monkeypatch):
+    report = _report_module()
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_API_URL", "file:///etc")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    (tmp_path / "n.json").write_text('{"total_num_lines": 0}')
+    monkeypatch.setattr("sys.argv", ["report.py", "--context", "c", "--new-code", str(tmp_path / "n.json"),
+                                     "--repo", "o/r", "--sha", "abc"])
+    with pytest.raises(SystemExit, match="must be an https URL"):
+        report.main()
+
+
+class _FakeHTTPS:
+    calls: list = []
+    status = 201
+
+    def __init__(self, host, port, timeout):
+        self.host, self.port = host, port
+
+    def request(self, method, path, body, headers):
+        _FakeHTTPS.calls.append({"host": self.host, "port": self.port, "method": method, "path": path,
+                                 "body": __import__("json").loads(body), "auth": headers["Authorization"]})
+
+    def getresponse(self):
+        return type("R", (), {"status": _FakeHTTPS.status, "read": lambda self: b"{}"})()
+
+
+def _run_report(monkeypatch, tmp_path, *argv, api="https://api.github.com"):
+    report = _report_module()
+    monkeypatch.setattr(report.http.client, "HTTPSConnection", _FakeHTTPS)
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    monkeypatch.setenv("GITHUB_API_URL", api)
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    monkeypatch.setattr("sys.argv", ["report.py", "--repo", "o/r", "--sha", "abc", *argv])
+    _FakeHTTPS.calls = []
+    return report.main()
+
+
+def test_report_py_posts_test_results_and_new_code_as_statuses(tmp_path, monkeypatch):
+    import json
+
+    (tmp_path / "junit.xml").write_text('<testsuite tests="10" failures="0" errors="0" skipped="1"/>')
+    (tmp_path / "summary.json").write_text(json.dumps({"total": {"lines": {"pct": 91.25}}}))
+    code = _run_report(monkeypatch, tmp_path, "--context", "unit / report", "--junit", str(tmp_path / "junit.xml"),
+                       "--istanbul", str(tmp_path / "summary.json"))
+    [call] = _FakeHTTPS.calls
+    assert code == 0 and call["path"] == "/repos/o/r/statuses/abc" and call["auth"] == "Bearer tok"
+    assert call["host"] == "api.github.com" and call["port"] == 443
+    assert call["body"]["state"] == "success" and call["body"]["description"] == "9 passed, 0 failed, 1 skipped. Coverage: 91.2%"
+
+    # A GitHub Enterprise Server API (a path and a port), and an eval run with a pass rate.
+    (tmp_path / "evals.xml").write_text('<testsuite tests="20" failures="1" errors="0" skipped="0"/>')
+    code = _run_report(monkeypatch, tmp_path, "--context", "evals / report", "--junit", str(tmp_path / "evals.xml"),
+                       "--min-pass-rate", "0.9", api="https://ghe.example:8443/api/v3/")
+    [call] = _FakeHTTPS.calls
+    assert code == 0 and call["port"] == 8443 and call["path"] == "/api/v3/repos/o/r/statuses/abc"
+    assert "Pass rate: 95.0% (at least 90%)." in call["body"]["description"]
+
+    (tmp_path / "new.json").write_text(json.dumps({"total_num_lines": 10, "total_num_violations": 5,
+                                                   "src_stats": {"src/a.py": {"violation_lines": [1, 2, 3, 7, 9]}}}))
+    code = _run_report(monkeypatch, tmp_path, "--context", "code-quality / new code", "--new-code", str(tmp_path / "new.json"))
+    [call] = _FakeHTTPS.calls
+    assert code == 1 and call["body"]["state"] == "failure" and "a.py 1-3, 7, 9" in call["body"]["description"]
+    assert "- `src/a.py`: lines 1-3, 7, 9" in (tmp_path / "summary.md").read_text()
+
+    _FakeHTTPS.status = 403
+    try:
+        with pytest.raises(SystemExit, match="HTTP 403"):
+            _run_report(monkeypatch, tmp_path, "--context", "c", "--new-code", str(tmp_path / "new.json"))
+    finally:
+        _FakeHTTPS.status = 201
+
+
+def test_report_py_without_a_token_only_prints(tmp_path, monkeypatch, capsys):
+    report = _report_module()
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "s.md"))
+    monkeypatch.setattr("sys.argv", ["report.py", "--context", "unit / report", "--junit", str(tmp_path / "none*.xml")])
+    assert report.main() == 1  # no tests ran
+    assert "0 passed, 0 failed, 0 skipped." in capsys.readouterr().out
+    for read in (report.jacoco, report.cobertura, report.istanbul):
+        assert read(str(tmp_path / "missing.xml")) is None and read("") is None
