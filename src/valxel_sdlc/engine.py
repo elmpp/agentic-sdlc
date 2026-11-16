@@ -349,6 +349,10 @@ class FeatureEngine:
                 continue
         return out
 
+    def check_connections(self) -> int:
+        """Each workspace's connections, one cheap read each (valxel_sdlc.connections)."""
+        conns = getattr(self.services, "connections", None)
+        return conns.check_all() if conns is not None else 0
     def expire_transcripts(self) -> int:
         """Delete agent session transcripts older than a day (valxel_sdlc.sessions): resuming needs
         them only that long; the handoffs and session records stay."""
@@ -410,7 +414,8 @@ class FeatureEngine:
                         self.cluster.prune(30)
                     except Exception:
                         pass
-                    for job in (self.collect_costs, self.review_costs, self.expire_transcripts):
+            
+                    for job in (self.collect_costs, self.review_costs, self.expire_transcripts,self.check_connections):
                         try:
                             job()
                         except Exception:
@@ -1987,7 +1992,7 @@ def rail(s: dict, pending: list[dict], *, running: bool) -> list[dict]:
         stations.append({"key": key, "kind": kind, "state": st})
     for p in pending:  # CI or OpenChoreo: work in progress, not a person's turn
         if p["type"] == "external":
-            st = next((x for x in stations if x["key"] == WAIT_STATION.get(p.get("wait"), "build")), None)
+            st = next((x for x in stations if x["key"] == (p.get("phase") or WAIT_STATION.get(p.get("wait"), "build"))), None)
             if st:
                 st["state"] = "current"
     if running and not any(x["state"] in ("waiting", "current") for x in stations):
