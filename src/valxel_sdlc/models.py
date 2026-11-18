@@ -11,6 +11,7 @@ instead of stopping the tool.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 from .config import Settings
@@ -48,6 +49,12 @@ def validate(settings: Settings) -> None:
 def provider_ready(settings: Settings, provider: str, runtime: str = "generic") -> bool:
     if provider in BUILT_IN_PROVIDERS:
         return True
+    from .gateway_sessions import configured as routed
+
+    if runtime == "codex" and routed():  # Codex reaches its model through the gateway, with a session token,
+        # once the gateway serves and prices Codex's models (VALXEL_LLM_GATEWAY_CODEX=on): unpriced, the
+        # gateway would refuse every session.
+        return os.environ.get("VALXEL_LLM_GATEWAY_CODEX", "").lower() in ("1", "on", "true", "yes")
     pc = settings.providers.get(provider)
     if pc is not None:
         return pc.configured()
