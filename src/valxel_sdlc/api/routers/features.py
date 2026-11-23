@@ -32,6 +32,13 @@ def build(ctx: SimpleNamespace) -> APIRouter:
     eng = ctx.eng
     current_user = ctx.current_user
     lanes_for = ctx.lanes_for
+
+    def _may_act_on(user: User, product_id: str) -> bool:
+        """An inception has no product yet: it carries the product_id "INCEPTION", which is in
+        nobody's lanes. Whoever may start one may carry it on, so these checks pass it through
+        (valxel_sdlc.inception; the inception's own routes check the starters)."""
+        return product_id == "INCEPTION" or product_id in lanes_for(user)
+
     may_start = ctx.may_start
     item_approvers = ctx.item_approvers
     confirm_decider = ctx.confirm_decider
@@ -464,7 +471,7 @@ def build(ctx: SimpleNamespace) -> APIRouter:
             v = eng().view(feature_id)
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
-        if v["product_id"] not in lanes_for(user) and v["product_id"] != "INCEPTION":
+        if not _may_act_on(user, v["product_id"]):
             raise HTTPException(403, f"You aren't a member of {v['product_id']}'s organization")
         ref = item.get("artifact")
         if ref:
@@ -488,7 +495,7 @@ def build(ctx: SimpleNamespace) -> APIRouter:
             pid = eng().view(feature_id)["product_id"]
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
-        if pid not in lanes_for(user):
+        if not _may_act_on(user, pid):
             raise HTTPException(403, f"Only members of {pid}'s organization can resume its work")
         try:
             return eng().resume(feature_id, by=user.login)
@@ -502,7 +509,7 @@ def build(ctx: SimpleNamespace) -> APIRouter:
             pid = eng().view(feature_id)["product_id"]
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
-        if pid not in lanes_for(user):
+        if pid not in lanes_for(user):  # an inception has no work tracker to sync
             raise HTTPException(403, f"Only members of {pid}'s organization can sync its tracker")
         result = eng().sync_work(feature_id)
         eng().bus.publish({"type": "feature.updated", "feature_id": feature_id})

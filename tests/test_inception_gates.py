@@ -52,6 +52,16 @@ def test_only_starters_begin_and_only_the_council_decides(client, engine):
     assert [i["id"] for i in client.get("/api/inceptions").json()] == [tid]
 
 
+def test_an_inception_can_be_resumed(client, engine):
+    """An inception carries the product_id "INCEPTION", which is in nobody's lanes, so resume used
+    to refuse it outright and one that stopped on an error could never be carried on. Whatever the
+    engine then says about this one, the answer must not be 403."""
+    sign_in(client, "lead", teams=COUNCIL)
+    tid = client.post("/api/inceptions", json=BODY).json()["feature_id"]
+    wait_idle(engine, tid)
+    assert client.post(f"/api/features/{tid}/resume", json={}).status_code != 403
+
+
 def test_two_gates_then_setup_opens_the_pull_requests(client, engine, services, monkeypatch):
     monkeypatch.setenv("VALXEL_CONFIG_REPO", "valxel-platform/sdlc-config")
     sign_in(client, "lead", teams=COUNCIL)
