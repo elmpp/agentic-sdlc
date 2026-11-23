@@ -28,6 +28,7 @@ import dataclasses
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -132,7 +133,10 @@ class ClaudeCodeRuntime:
         if not self.gateway.allowed(role.provider, task.tags.data_class):
             raise PolicyViolation(f"{task.tags.data_class} data may not reach {role.provider!r}")
         try:
-            return asyncio.run(self._run(task, role.model))
+            # Hold a subscription concurrency slot across the whole launch (REQ-006); in gateway/
+            # default mode the slot is a nullcontext and nothing is throttled.
+            with _subscription_slot(self.gateway.settings):
+                return asyncio.run(self._run(task, role.model))
         except ProviderUnavailable:
             raise
         except Exception as exc:  # the CLI reports overload and rate limits as text
@@ -270,6 +274,38 @@ class ClaudeCodeRuntime:
             model=model,
             runtime=self.name,
         )
+
+
+# Bounded concurrency for subscription sessions (REQ-006). Each ``run`` is its own ``asyncio.run``
+# on an engine ``ThreadPoolExecutor`` thread, so the cap must be held ACROSS those feature threads,
+# not inside one event loop — hence a process-global ``threading.BoundedSemaphore`` rather than an
+# asyncio primitive. The cap is GLOBAL (not per-role — OQ-3) and PER-PROCESS: with N worker
+# processes the effective ceiling is N × the cap, and cross-process coordination is out of scope (an
+# estate concern). The size is read once, when the semaphore is first created; changing
+# ``VALXEL_SUBSCRIPTION_MAX_SESSIONS`` needs a worker restart (ODP-2), acceptable for the homelab.
+_SUB_SEM: threading.BoundedSemaphore | None = None
+_SUB_SEM_LOCK = threading.Lock()
+
+
+def _subscription_slot(settings) -> contextlib.AbstractContextManager[object]:
+    """A concurrency slot for one subscription ``claude_code`` session, or an inert slot otherwise.
+
+    In subscription mode (``VALXEL_CLAUDE_AUTH=subscription``) this returns the process-global
+    ``BoundedSemaphore`` sized by ``VALXEL_SUBSCRIPTION_MAX_SESSIONS`` (default 2): at most that many
+    sessions launch at once and the rest block on acquire until a slot frees, released on completion
+    or error by the ``with`` in ``run``. In gateway/default mode it returns ``contextlib.nullcontext``
+    — no throttle, the gateway path stays byte-for-byte unchanged (REQ-001). The ``getattr`` defaults
+    keep this safe before the REQ-001 settings surface co-merges: a settings object without
+    ``claude_auth`` reads as gateway, and the size defaults to 2."""
+    if getattr(settings, "claude_auth", "gateway") != "subscription":
+        return contextlib.nullcontext()
+    global _SUB_SEM  # noqa: PLW0603 - a lazily-sized module-global singleton, guarded by the lock
+    with _SUB_SEM_LOCK:
+        sem = _SUB_SEM
+        if sem is None:
+            sem = _SUB_SEM = threading.BoundedSemaphore(
+                max(1, int(getattr(settings, "subscription_max_sessions", 2))))
+    return sem
 
 
 def steps_for(task: AgentTask):
