@@ -280,7 +280,7 @@ class ClaudeCodeRuntime:
 # on an engine ``ThreadPoolExecutor`` thread, so the cap must be held ACROSS those feature threads,
 # not inside one event loop — hence a process-global ``threading.BoundedSemaphore`` rather than an
 # asyncio primitive. The cap is GLOBAL (not per-role — OQ-3) and PER-PROCESS: with N worker
-# processes the effective ceiling is N × the cap, and cross-process coordination is out of scope (an
+# processes the effective ceiling is N x the cap, and cross-process coordination is out of scope (an
 # estate concern). The size is read once, when the semaphore is first created; changing
 # ``VALXEL_SUBSCRIPTION_MAX_SESSIONS`` needs a worker restart (ODP-2), acceptable for the homelab.
 _SUB_SEM: threading.BoundedSemaphore | None = None
