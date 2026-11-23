@@ -41,6 +41,22 @@ def test_tracing_settings_reach_the_tool_and_its_sessions():
         assert f"\n{name}=" in example, f"{name} is not in the bundle's .env.example"
 
 
+def test_connected_apps_oauth_clients_reach_the_tool():
+    """Each vendor oauth_connections reads must be passed through, or Connected apps shows the tool
+    as not set up even when the operator has set its client in .env."""
+    from valxel_sdlc.oauth_connections import VENDORS
+
+    names = ["VALXEL_GITHUB_OAUTH_CLIENT_ID", "VALXEL_GITHUB_OAUTH_CLIENT_SECRET", "VALXEL_SENTRY_OAUTH_APP_SLUG"]
+    for tool in VENDORS:
+        names += [f"VALXEL_{tool.upper()}_OAUTH_CLIENT_ID", f"VALXEL_{tool.upper()}_OAUTH_CLIENT_SECRET"]
+    services = _compose()["services"]
+    example = (laptop.bundle() / ".env.example").read_text()
+    for name in names:
+        for svc in ("api", "worker"):
+            assert services[svc]["environment"].get(name) == f"${{{name}:-}}", f"{name} doesn't reach {svc}"
+        assert f"\n{name}=" in example, f"{name} is not in the bundle's .env.example"
+
+
 def test_only_the_worker_and_the_session_launcher_reach_docker_and_only_the_api_is_published():
     services = _compose()["services"]
     sock = [n for n, s in services.items() if any("docker.sock" in str(v) for v in s.get("volumes") or [])]
