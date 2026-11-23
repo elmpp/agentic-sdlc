@@ -26,6 +26,20 @@ def test_model_key_reaches_only_the_gateway():
         assert env["VALXEL_TIER"] == "laptop" and env["VALXEL_DELIVERY"] == "local"
 
 
+def test_tracing_settings_reach_the_tool_and_its_sessions():
+    """Set in .env, VALXEL_OTEL_* must reach the processes that trace agents' work; unset, they
+    stay empty and no exporter is configured."""
+    services = _compose()["services"]
+    for name in ("api", "worker"):
+        env = services[name]["environment"]
+        assert env["VALXEL_OTEL_ENDPOINT"] == "${VALXEL_OTEL_ENDPOINT:-}"
+        assert env["VALXEL_OTEL_HEADERS"] == "${VALXEL_OTEL_HEADERS:-}"
+        assert env["VALXEL_TRACE_URL"] == "${VALXEL_TRACE_URL:-}"
+    example = (laptop.bundle() / ".env.example").read_text()
+    for name in ("VALXEL_OTEL_ENDPOINT", "VALXEL_OTEL_HEADERS", "VALXEL_TRACE_URL"):
+        assert f"\n{name}=" in example, f"{name} is not in the bundle's .env.example"
+
+
 def test_only_the_worker_and_the_session_launcher_reach_docker_and_only_the_api_is_published():
     services = _compose()["services"]
     sock = [n for n, s in services.items() if any("docker.sock" in str(v) for v in s.get("volumes") or [])]

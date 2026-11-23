@@ -50,6 +50,11 @@ x-tool: &tool
     VALXEL_AUDIT_KAFKA_BOOTSTRAP: kafka:9092
     VALXEL_AUDIT_TOPIC: audit.v1
     VALXEL_LLM_GATEWAY_API_KEY: ${VALXEL_GATEWAY_KEY:?run valxel dev init}
+    # Traces of agents' work (valxel_sdlc.telemetry): unset means no exporter, so sessions run as
+    # before. Set them in .env to watch a session's steps in a collector (Langfuse, Tempo, Jaeger).
+    VALXEL_OTEL_ENDPOINT: ${VALXEL_OTEL_ENDPOINT:-}
+    VALXEL_OTEL_HEADERS: ${VALXEL_OTEL_HEADERS:-}
+    VALXEL_TRACE_URL: ${VALXEL_TRACE_URL:-}
     # Each agent session runs in a container of its own, started by the session launcher (T-68).
     VALXEL_SESSION_EXECUTOR: docker
     VALXEL_SESSION_LAUNCHER_URL: http://session-launcher:8083
