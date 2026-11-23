@@ -3,6 +3,7 @@
 import hashlib
 import stat
 import subprocess
+from pathlib import Path
 
 import yaml
 
@@ -46,6 +47,19 @@ def test_only_the_worker_and_the_session_launcher_reach_docker_and_only_the_api_
     assert sock == ["worker", "session-launcher"]  # products on the laptop; sessions
     published = {n: s["ports"] for n, s in services.items() if s.get("ports")}
     assert published == {"api": ["127.0.0.1:${VALXEL_PORT:-8080}:8080"]}  # 8090 beside a local OpenChoreo
+
+
+def test_the_gateway_caps_cover_a_product_inception():
+    """A session is minted with the whole budget of the work it runs, so a laptop whose session cap
+    is under config/registry.yaml's inception.budget_usd cannot start one at all: the gateway
+    refuses to mint it and the inception dies at drafting_plan. Guards the two from drifting."""
+    repo = Path(__file__).resolve().parents[1]
+    budget = yaml.safe_load((repo / "config" / "registry.yaml").read_text())["inception"]["budget_usd"]
+    for tier in ("laptop", "vm"):
+        policy = yaml.safe_load((repo / "src" / "valxel_sdlc" / tier / "bundle" / "gateway-policy.yaml").read_text())
+        caller = policy["callers"]["sdlc-tool"]
+        assert caller["sessions"]["max_budget_usd"] >= budget, f"{tier}: a session can't hold one inception"
+        assert caller["budget_usd_per_day"] >= budget, f"{tier}: a day can't hold one inception"
 
 
 def test_init_writes_owner_only_env_and_a_policy_with_only_the_hash(tmp_path, monkeypatch):

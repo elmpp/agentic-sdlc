@@ -17,11 +17,13 @@ data_classes:
 callers:
   sdlc-tool:
     key_sha256: "{tool_key_sha256}"
-    budget_usd_per_day: 20
+    # Enough for a product inception (config/registry.yaml inception.budget_usd) and a day's feature
+    # work beside it; a session may be minted with a whole inception's budget, so its cap covers one.
+    budget_usd_per_day: 100
     models: ["claude-*"]
     max_tokens: 128000
     data_classes: [general, payments]
-    sessions: { max_budget_usd: 5, max_ttl_s: 7800, max_open: 10 }
+    sessions: { max_budget_usd: 50, max_ttl_s: 7800, max_open: 10 }
 pricing:
   "claude-opus-*":   { input: 4.0, output: 20.0, cache_read: 0.2 }
   "claude-sonnet-*": { input: 2.0, output: 10.0, cache_read: 0.1 }
