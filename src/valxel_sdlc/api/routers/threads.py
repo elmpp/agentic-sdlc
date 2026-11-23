@@ -211,7 +211,8 @@ def build(ctx: SimpleNamespace) -> APIRouter:
             org = body.org
         v = Vision(name=body.name, org=org, vision=body.vision, goals=body.goals, users=body.users,
                    constraints=body.constraints, budget_usd=body.budget_usd, product_id=body.product_id,
-                   existing=existing, research_depth=body.research, workspace="" if existing else body.workspace)
+                   existing=existing, research_depth=body.research, data_class=body.data_class,
+                   workspace="" if existing else body.workspace)
         return {"feature_id": eng().create_inception(v, created_by=user.login, background=True)}
 
     @api.get("/inceptions")

@@ -24,7 +24,7 @@ from langgraph.types import Command, interrupt
 from ..state import last, merge_dict
 from . import Vision
 from . import setup as setup_mod
-from .run import draft
+from .run import draft, started_under
 from .run import research as research_note
 
 PRODUCT_ID = "INCEPTION"
@@ -110,9 +110,11 @@ def build_inception_graph(services, checkpointer=None):
         return Vision(**state["vision"])
 
     def research(state: InceptionState) -> dict:
-        r = research_note(services, vision(state))
-        return {"research": r.text, "reports": {"research": {"doc": "research", "data_class": "phi",
-                                                                 **{k: v for k, v in r.as_dict().items() if k != "text"}}},
+        vis = vision(state)
+        r = research_note(services, vis)
+        report = {"doc": "research", "data_class": started_under(vis),
+                  **{k: v for k, v in r.as_dict().items() if k != "text"}}
+        return {"research": r.text, "reports": {"research": report},
                 "cost_usd": r.cost_usd, "status": "drafting_brief",
                 "events": [event("research", r.status, f"{r.depth}, {'searched the web' if r.web else 'no web search'}",
                                  findings=r.findings)]}

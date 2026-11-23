@@ -190,8 +190,9 @@ def draft(services, vision: Vision, doc: str, *, brief: str = "", architecture: 
         raise ValueError("The roadmap needs the architecture")
     plat = platform(services)
     ctx = context_for(services, vision, doc, brief=brief, architecture=architecture, plat=plat, research=research)
-    # Strictest until the brief gate approves a data class; then the approved one.
-    data_class = ctx["data_class"] if doc != "brief" and ctx["data_class"] else STRICTEST
+    # The approved class once the brief gate has settled one; before that, whatever the person
+    # starting the inception declared, and strictest of all when they declared nothing.
+    data_class = ctx["data_class"] if doc != "brief" and ctx["data_class"] else started_under(vision)
     constitution = plat["constitution"]
     product_context = existing_context(services, vision.product_id) if vision.existing and vision.product_id else ""
     parents = {"research": research if doc == "brief" else "", "brief": brief, "architecture": architecture}
@@ -230,9 +231,20 @@ def draft(services, vision: Vision, doc: str, *, brief: str = "", architecture: 
     return Draft(doc, text, "escalated", loops, findings, judged, round(cost, 4), {}, data_class)
 
 
+def started_under(vision: Vision) -> str:
+    """The class an inception's calls run under before the brief gate approves one: what the person
+    starting it declared, or STRICTEST when they declared nothing.
+
+    An undeclared product might turn out to hold anything, so the default stays the strictest class
+    and a gateway policy without a BAA provider refuses it. Declaring `general` (synthetic or public
+    data: a laptop, an evaluation, a demo) is what lets the work run there, and it is the person
+    starting the inception who says so, not the tier."""
+    return vision.data_class or STRICTEST
+
+
 def research(services, vision: Vision, max_loops: int | None = None):
-    """The research note the brief cites (valxel_sdlc.research). Runs as PHI, like the brief: no
-    data class is approved yet."""
+    """The research note the brief cites (valxel_sdlc.research). Runs under the class the inception
+    was started under: no class is approved until the brief gate."""
     from .. import research as rs
 
     plat = platform(services)
@@ -242,9 +254,10 @@ def research(services, vision: Vision, max_loops: int | None = None):
     def layers_for(skills, tail):
         return _layers(services, role, tuple(skills), plat["constitution"], product_context, "", tail)
 
+    dc = started_under(vision)
     return rs.run(services, role=role, subject=vision.name, request=vision.as_request(),
-                  depth=vision.research_depth, data_class=STRICTEST,
-                  tags=_tags(vision, "research", role, STRICTEST), layers_for=layers_for,
+                  depth=vision.research_depth, data_class=dc,
+                  tags=_tags(vision, "research", role, dc), layers_for=layers_for,
                   attachments_text=vision.attachments_text, max_loops=max_loops)
 
 

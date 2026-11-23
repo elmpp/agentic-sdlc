@@ -52,12 +52,17 @@ class Vision:
     existing: bool = False                              # describe an existing product
     attachments_text: str = ""
     research_depth: str = "quick"                       # quick | thorough | own (valxel_sdlc.research)
+    # What the product's data will be, when the person starting the inception already knows: one of
+    # DATA_CLASSES. Empty means undeclared, and every call before the brief gate runs under
+    # STRICTEST, since an undeclared product might turn out to hold anything. Declaring "general"
+    # is what lets an inception run against a provider with no BAA (the laptop tier, ADR 0007).
+    data_class: str = ""
     workspace: str = ""                                 # a self-serve workspace's own product: its Product group decides
 
     @staticmethod
     def from_markdown(text: str, *, org: str = "", product_id: str = "", existing: bool = False) -> "Vision":
         """A vision written as Markdown: '# Name', free text, then '## Goals', '## Users',
-        '## Constraints' and '## Budget' sections (each optional)."""
+        '## Constraints', '## Budget' and '## Data class' sections (each optional)."""
         from ..agents.parse import section
 
         title = re.search(r"^#\s+(.+)$", text, re.M)
@@ -68,9 +73,11 @@ class Vision:
             return [ln.strip()[2:].strip() for ln in section(text, name).splitlines() if ln.strip().startswith("- ")]
 
         budget = re.search(r"[\d][\d,.]*", section(text, "Budget"))
+        declared = section(text, "Data class").strip().split(":", 1)[0].strip().lower()
         return Vision(name=(title.group(1).strip() if title else "New product"), org=org, vision=body,
                       goals=bullets("Goals"), users=bullets("Users"), constraints=bullets("Constraints"),
                       budget_usd=float(budget.group(0).replace(",", "")) if budget else 0.0,
+                      data_class=declared if declared in DATA_CLASSES else "",
                       product_id=product_id, existing=existing)
 
     def as_request(self) -> str:
@@ -81,6 +88,8 @@ class Vision:
                 parts += ["", f"{label}:", *[f"- {i}" for i in items]]
         if self.budget_usd:
             parts += ["", f"Budget for the first year of features: ${self.budget_usd:,.0f}"]
+        if self.data_class:
+            parts += ["", f"Data class the product is started under: {self.data_class}"]
         if self.product_id:
             parts += ["", f"{'Existing' if self.existing else 'Proposed'} product id: {self.product_id}"]
         return "\n".join(parts)
