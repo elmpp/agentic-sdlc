@@ -3,6 +3,7 @@
 import hashlib
 import stat
 import subprocess
+from pathlib import Path
 
 import yaml
 
@@ -26,12 +27,55 @@ def test_model_key_reaches_only_the_gateway():
         assert env["VALXEL_TIER"] == "laptop" and env["VALXEL_DELIVERY"] == "local"
 
 
+def test_tracing_settings_reach_the_tool_and_its_sessions():
+    """Set in .env, VALXEL_OTEL_* must reach the processes that trace agents' work; unset, they
+    stay empty and no exporter is configured."""
+    services = _compose()["services"]
+    for name in ("api", "worker"):
+        env = services[name]["environment"]
+        assert env["VALXEL_OTEL_ENDPOINT"] == "${VALXEL_OTEL_ENDPOINT:-}"
+        assert env["VALXEL_OTEL_HEADERS"] == "${VALXEL_OTEL_HEADERS:-}"
+        assert env["VALXEL_TRACE_URL"] == "${VALXEL_TRACE_URL:-}"
+    example = (laptop.bundle() / ".env.example").read_text()
+    for name in ("VALXEL_OTEL_ENDPOINT", "VALXEL_OTEL_HEADERS", "VALXEL_TRACE_URL"):
+        assert f"\n{name}=" in example, f"{name} is not in the bundle's .env.example"
+
+
+def test_connected_apps_oauth_clients_reach_the_tool():
+    """Each vendor oauth_connections reads must be passed through, or Connected apps shows the tool
+    as not set up even when the operator has set its client in .env."""
+    from valxel_sdlc.oauth_connections import VENDORS
+
+    names = ["VALXEL_GITHUB_OAUTH_CLIENT_ID", "VALXEL_GITHUB_OAUTH_CLIENT_SECRET", "VALXEL_SENTRY_OAUTH_APP_SLUG"]
+    for tool in VENDORS:
+        names += [f"VALXEL_{tool.upper()}_OAUTH_CLIENT_ID", f"VALXEL_{tool.upper()}_OAUTH_CLIENT_SECRET"]
+    services = _compose()["services"]
+    example = (laptop.bundle() / ".env.example").read_text()
+    for name in names:
+        for svc in ("api", "worker"):
+            assert services[svc]["environment"].get(name) == f"${{{name}:-}}", f"{name} doesn't reach {svc}"
+        assert f"\n{name}=" in example, f"{name} is not in the bundle's .env.example"
+
+
 def test_only_the_worker_and_the_session_launcher_reach_docker_and_only_the_api_is_published():
     services = _compose()["services"]
     sock = [n for n, s in services.items() if any("docker.sock" in str(v) for v in s.get("volumes") or [])]
     assert sock == ["worker", "session-launcher"]  # products on the laptop; sessions
     published = {n: s["ports"] for n, s in services.items() if s.get("ports")}
     assert published == {"api": ["127.0.0.1:${VALXEL_PORT:-8080}:8080"]}  # 8090 beside a local OpenChoreo
+
+
+def test_the_gateway_caps_cover_a_product_inception():
+    """A session is minted with the whole budget of the work it runs, so a laptop whose session cap
+    is under config/registry.yaml's inception.budget_usd cannot start one at all: the gateway
+    refuses to mint it and the inception dies at drafting_plan. Guards the two from drifting."""
+    repo = Path(__file__).resolve().parents[1]
+    budget = yaml.safe_load((repo / "config" / "registry.yaml").read_text())["inception"]["budget_usd"]
+    for tier in ("laptop", "vm"):
+        policy = yaml.safe_load((repo / "src" / "valxel_sdlc" / tier / "bundle" / "gateway-policy.yaml").read_text())
+        caller = policy["callers"]["sdlc-tool"]
+        assert caller["sessions"]["max_budget_usd"] >= budget, f"{tier}: a session can't hold one inception"
+        assert caller["budget_usd_per_day"] >= budget, f"{tier}: a day can't hold one inception"
 
 
 def test_init_writes_owner_only_env_and_a_policy_with_only_the_hash(tmp_path, monkeypatch):

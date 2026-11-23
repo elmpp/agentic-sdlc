@@ -42,6 +42,12 @@ valxel = "valxel_sdlc.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/valxel_sdlc"]
 
+# The tool's own config travels with the wheel, so a non-editable install (uv tool install,
+# pipx) can still read the golden path and the template contract. A checkout prefers the
+# repository's own config/; see valxel_sdlc.config.default_config_dir.
+[tool.hatch.build.targets.wheel.force-include]
+"config" = "valxel_sdlc/_config"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

@@ -47,6 +47,25 @@ def test_the_brief_stops_for_its_gate_and_runs_as_the_strictest_class(services, 
     assert [g["id"] for g in formats.goals(b.text)] == ["PG1", "PG2"]
 
 
+def test_a_declared_general_class_is_what_the_brief_runs_under(services):
+    """An undeclared product might hold anything, so it runs as PHI until the brief gate settles a
+    class. Someone who already knows (synthetic data on a laptop, an evaluation) says so up front,
+    and the work then runs under that class — which is what lets it reach a provider with no BAA."""
+    declared = Vision.from_markdown(VISION + "\n## Data class\ngeneral: synthetic farm readings\n",
+                                    org="acme-water")
+    assert declared.data_class == "general"
+    assert "Data class the product is started under: general" in declared.as_request()
+    [b] = run(services, declared)
+    assert b.status == "passed" and b.data_class == "general"
+
+
+def test_an_unknown_declared_class_is_ignored_and_stays_strictest(services):
+    vision = Vision.from_markdown(VISION + "\n## Data class\nnonsense: not a class\n", org="acme-water")
+    assert vision.data_class == ""
+    [b] = run(services, vision)
+    assert b.data_class == "phi"
+
+
 def test_with_the_approved_brief_the_architecture_and_roadmap_follow(services, vision):
     [b] = run(services, vision)
     a, r = run(services, vision, brief=b.text)

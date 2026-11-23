@@ -74,9 +74,9 @@ def contract() -> dict:
     as for the rest of the config)."""
     import os
 
-    from .config import _repo_root, config_file
+    from .config import config_file, default_config_dir
 
-    cfg = Path(os.environ.get("VALXEL_CONFIG_DIR") or _repo_root() / "config")
+    cfg = Path(os.environ.get("VALXEL_CONFIG_DIR") or default_config_dir())
     return parse(config_file(cfg, "template-contract.yaml").read_text())
 
 

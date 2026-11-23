@@ -23,6 +23,19 @@ x-tool: &tool
     VALXEL_GITHUB_PROVISIONER_APP_CLIENT_SECRET: ${VALXEL_GITHUB_PROVISIONER_APP_CLIENT_SECRET:-}
     VALXEL_GITHUB_PROVISIONER_PRIVATE_KEY: ${VALXEL_GITHUB_PROVISIONER_PRIVATE_KEY:-}
     VALXEL_GITHUB_WEBHOOK_SECRET: ${VALXEL_GITHUB_WEBHOOK_SECRET:-}
+    # Connected apps: each tool's OAuth client (oauth_connections.py); a tool whose client isn't
+    # set shows as not set up. GitHub's OAuth App is for sign-in (web/auth.py).
+    VALXEL_GITHUB_OAUTH_CLIENT_ID: ${VALXEL_GITHUB_OAUTH_CLIENT_ID:-}
+    VALXEL_GITHUB_OAUTH_CLIENT_SECRET: ${VALXEL_GITHUB_OAUTH_CLIENT_SECRET:-}
+    VALXEL_JIRA_OAUTH_CLIENT_ID: ${VALXEL_JIRA_OAUTH_CLIENT_ID:-}
+    VALXEL_JIRA_OAUTH_CLIENT_SECRET: ${VALXEL_JIRA_OAUTH_CLIENT_SECRET:-}
+    VALXEL_LUCID_OAUTH_CLIENT_ID: ${VALXEL_LUCID_OAUTH_CLIENT_ID:-}
+    VALXEL_LUCID_OAUTH_CLIENT_SECRET: ${VALXEL_LUCID_OAUTH_CLIENT_SECRET:-}
+    VALXEL_SENTRY_OAUTH_CLIENT_ID: ${VALXEL_SENTRY_OAUTH_CLIENT_ID:-}
+    VALXEL_SENTRY_OAUTH_CLIENT_SECRET: ${VALXEL_SENTRY_OAUTH_CLIENT_SECRET:-}
+    VALXEL_SENTRY_OAUTH_APP_SLUG: ${VALXEL_SENTRY_OAUTH_APP_SLUG:-}
+    VALXEL_PAGERDUTY_OAUTH_CLIENT_ID: ${VALXEL_PAGERDUTY_OAUTH_CLIENT_ID:-}
+    VALXEL_PAGERDUTY_OAUTH_CLIENT_SECRET: ${VALXEL_PAGERDUTY_OAUTH_CLIENT_SECRET:-}
     # Where products build and deploy: docker (this machine's Docker), or openchoreo (a local
     # OpenChoreo, `valxel dev cluster up`, which sets the rest of these).
     VALXEL_LOCAL_RUNTIME: ${VALXEL_LOCAL_RUNTIME:-docker}
@@ -50,6 +63,11 @@ x-tool: &tool
     VALXEL_AUDIT_KAFKA_BOOTSTRAP: kafka:9092
     VALXEL_AUDIT_TOPIC: audit.v1
     VALXEL_LLM_GATEWAY_API_KEY: ${VALXEL_GATEWAY_KEY:?run valxel dev init}
+    # Traces of agents' work (valxel_sdlc.telemetry): unset means no exporter, so sessions run as
+    # before. Set them in .env to watch a session's steps in a collector (Langfuse, Tempo, Jaeger).
+    VALXEL_OTEL_ENDPOINT: ${VALXEL_OTEL_ENDPOINT:-}
+    VALXEL_OTEL_HEADERS: ${VALXEL_OTEL_HEADERS:-}
+    VALXEL_TRACE_URL: ${VALXEL_TRACE_URL:-}
     # Each agent session runs in a container of its own, started by the session launcher (T-68).
     VALXEL_SESSION_EXECUTOR: docker
     VALXEL_SESSION_LAUNCHER_URL: http://session-launcher:8083

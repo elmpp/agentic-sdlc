@@ -64,6 +64,10 @@ class InceptionIn(BaseModel):
     workspace: str = Field("", max_length=40, description="A new product in this workspace, decided by its Product group")
     research: str = Field("quick", pattern="^(quick|thorough|own)$",
                           description="quick or thorough web research, or 'own': your research is in the vision")
+    data_class: str = Field("", pattern="^$|^(general|phi|payments)$",
+                            description="What the product's data will be, when you already know. Empty means "
+                                        "undeclared: every call before the brief gate then runs under the strictest "
+                                        "class, which a model provider with no BAA refuses")
 
 
 class ReleaseIn(BaseModel):
