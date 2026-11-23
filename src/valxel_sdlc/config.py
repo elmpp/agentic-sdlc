@@ -18,6 +18,22 @@ def _repo_root() -> Path:
     return Path(env) if env else Path(__file__).resolve().parents[2]
 
 
+def default_config_dir() -> Path:
+    """The tool's own config directory, when the deployment doesn't name one (VALXEL_CONFIG_DIR).
+
+    A checkout reads the repository's `config/`. A wheel has no repository around it, so the same
+    files ship inside the package as `valxel_sdlc/_config` (pyproject's force-include) and that copy
+    is read instead; without it, a non-editable install raises FileNotFoundError on the first config
+    read."""
+    root = _repo_root() / "config"
+    if root.is_dir():
+        return root
+    packaged = Path(__file__).resolve().parent / "_config"
+    if packaged.is_dir():
+        return packaged
+    return root  # nothing shipped: let the caller fail naming the path it wanted
+
+
 @dataclass(frozen=True)
 class RepoSpec:
     name: str  # "<org>/<repo>"
@@ -312,7 +328,7 @@ def config_file(cfg_dir: Path | str, name: str) -> Path:
     doesn't override it, the tool's own default. A deployment keeps only what it changes (its
     registry, its models), so it never carries a stale copy of the golden path or the contract."""
     path = Path(cfg_dir) / name
-    return path if path.exists() else _repo_root() / "config" / name
+    return path if path.exists() else default_config_dir() / name
 
 
 def load_settings(
@@ -332,7 +348,7 @@ def load_settings(
             "settings kept with the secrets, read from VALXEL_SECRETS_DIR: %s; set them in the environment instead",
             ", ".join(moved))
     root = _repo_root()
-    cfg_dir = Path(config_dir or os.environ.get("VALXEL_CONFIG_DIR") or root / "config")
+    cfg_dir = Path(config_dir or os.environ.get("VALXEL_CONFIG_DIR") or default_config_dir())
     art_dir = Path(artifact_dir or os.environ.get("VALXEL_ARTIFACT_DIR") or root / ".artifacts")
 
     reg = yaml.safe_load((cfg_dir / "registry.yaml").read_text())

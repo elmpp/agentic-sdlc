@@ -59,9 +59,9 @@ def _demo(args: argparse.Namespace) -> int:
 
 def _examples_only(settings) -> bool:
     """True when the settings come from the tool's own config directory (the example products)."""
-    from .config import _repo_root
+    from .config import default_config_dir
 
-    return Path(settings.config_dir).resolve() == (_repo_root() / "config").resolve()
+    return Path(settings.config_dir).resolve() == default_config_dir().resolve()
 
 
 def _repos(args: argparse.Namespace, github=None) -> int:
