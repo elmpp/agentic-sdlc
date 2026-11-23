@@ -31,7 +31,7 @@ import os
 import time
 from pathlib import Path
 
-from .. import gateway_sessions, plugins, sessions
+from .. import gateway_sessions, plugins, secret_ring, sessions
 from ..gateway import ModelGateway, ModelResponse, PolicyViolation, ProviderUnavailable, is_transient
 from ..sandbox import claude_sandbox, claude_settings, session_env
 from .base import AgentResult, AgentTask
@@ -92,6 +92,25 @@ def session_options(task: AgentTask, role, model: str, *, cwd: str | None, plugi
     }
 
 
+def subscription_env(settings) -> dict[str, str]:
+    """The env overlay for a ``claude_code`` session on the Claude subscription
+    (``VALXEL_CLAUDE_AUTH=subscription``): the saved OAuth login reaches Anthropic through the
+    pass-through proxy (``settings.claude_proxy_url``), and no gateway credential is minted.
+
+    The two blanks are load-bearing, not belt-and-braces: ``ANTHROPIC_API_KEY`` and
+    ``ANTHROPIC_AUTH_TOKEN`` are both in ``sandbox.MODEL_KEYS["claude_code"]``, so
+    ``sandbox.session_env`` auto-loads a stored Console key / gateway token from the secret store
+    (sandbox.py:96-103) and Claude Code would let it out-rank the OAuth login. Overlaying them with
+    ``""`` here keeps the subscription token the only model credential the session holds (REQ-004)."""
+    token = secret_ring.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if not token:
+        raise ProviderUnavailable(
+            "claude_code: VALXEL_CLAUDE_AUTH=subscription but no CLAUDE_CODE_OAUTH_TOKEN in the "
+            "secret store — escrow the subscription token (claude setup-token) first")
+    return {"ANTHROPIC_BASE_URL": settings.claude_proxy_url, "CLAUDE_CODE_OAUTH_TOKEN": token,
+            "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""}
+
+
 class ClaudeCodeRuntime:
     name = "claude_code"
     capabilities = frozenset({"text", "native_plugins", "subagents", "code_execution"})
@@ -132,7 +151,13 @@ class ClaudeCodeRuntime:
             kwargs = session_options(task, role, model, cwd=self.cwd, plugin_dirs=self.plugins_for(task.role), home=home)
             store = sessions.TranscriptStore(self.gateway.settings.artifact_dir)
             with contextlib.ExitStack() as stack:
-                if gateway_sessions.configured():  # a short-lived gateway token instead of the tool's key
+                settings = self.gateway.settings
+                # Subscription first: in subscription mode gateway_sessions.configured() stays true
+                # (the generic one-call roles keep the gateway — REQ-003), so only a subscription-
+                # first branch stops the seam minting a gateway token for a claude_code session.
+                if settings.claude_auth == "subscription":
+                    kwargs["env"] = {**kwargs["env"], **subscription_env(settings)}
+                elif gateway_sessions.configured():  # a short-lived gateway token instead of the tool's key
                     try:
                         token_env = stack.enter_context(gateway_sessions.session_token(
                             task.tags, model, kwargs.get("max_budget_usd") or session_cap(task, role),
