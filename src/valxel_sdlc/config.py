@@ -286,6 +286,16 @@ class Settings:
     platform_error_tracking_path: str = ""
     # What the tool may do in production by itself; unset, remediation.yaml next to the AWS catalog.
     platform_remediation_path: str = ""
+    # Subscription lane (fork PR #2). Which credential path the `claude_code` roles take:
+    # "gateway" (default: a minted gateway session token, exactly as today) or "subscription" (the
+    # saved Claude login via a pass-through proxy, no gateway token). The `generic`/`codex` roles are
+    # unaffected either way. The loader normalises this and falls back to "gateway" on an unrecognised
+    # value, so flipping it back to "gateway" (or unsetting it) is the one-line revert. (REQ-001, REQ-007)
+    claude_auth: str = "gateway"
+    # Most concurrent subscription `claude_code` sessions; applies only in subscription mode (REQ-006).
+    subscription_max_sessions: int = 2
+    # The `ANTHROPIC_BASE_URL` pass-through proxy for subscription sessions (VALXEL_CLAUDE_PROXY_URL).
+    claude_proxy_url: str = ""
 
     def __post_init__(self) -> None:
         folder = self.platform_resources_path.rsplit("/", 1)[0] if "/" in self.platform_resources_path else ""
@@ -370,6 +380,14 @@ def load_settings(
         )
         for pid, p in reg["products"].items()
     }
+    # Subscription lane (fork PR #2). Normalise the opt-in auth mode: an unrecognised value (e.g. a
+    # typo like "subscriptio") surfaces as a warning and reverts to the metered gateway rather than
+    # silently mis-routing.
+    claude_auth = (os.environ.get("VALXEL_CLAUDE_AUTH") or "").strip().lower()
+    if claude_auth and claude_auth not in {"gateway", "subscription"}:
+        logging.getLogger(__name__).warning(
+            "VALXEL_CLAUDE_AUTH=%r not recognised; using 'gateway'", claude_auth)
+        claude_auth = "gateway"
     settings = Settings(
         mode=(mode or os.environ.get("VALXEL_MODE") or "stub").lower(),
         database_url=database_url if database_url is not None else (_secret("DATABASE_URL") or None),
@@ -412,6 +430,9 @@ def load_settings(
         plugins=_load_plugins(config_file(cfg_dir, "plugins.yaml")),
         skills_dir=os.environ.get("VALXEL_SKILLS_DIR", ""),
         inception=dict(reg.get("inception") or {}),
+        claude_auth=claude_auth or "gateway",
+        subscription_max_sessions=int(os.environ.get("VALXEL_SUBSCRIPTION_MAX_SESSIONS") or 2),
+        claude_proxy_url=os.environ.get("VALXEL_CLAUDE_PROXY_URL", ""),
     )
     from .models import validate
 
