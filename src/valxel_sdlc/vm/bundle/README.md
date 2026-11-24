@@ -43,6 +43,15 @@ resulting App ids into `.env`, and the private keys and the Delivery App's webho
 
 Then `sudo valxel vm up`. The tool is at `https://<your domain>`.
 
+## Connected apps (optional)
+
+Jira, Lucid, Sentry and PagerDuty connect through each vendor's own OAuth client (the connections
+page). They're optional: a vendor whose client isn't set shows there as not available, and `doctor`
+doesn't ask for it. To enable one, register an OAuth client with the vendor against this VM's domain,
+then set its id in `.env` (`VALXEL_<TOOL>_OAUTH_CLIENT_ID`, plus `VALXEL_SENTRY_OAUTH_APP_SLUG` for
+Sentry's public integration) and write its secret to `secrets/VALXEL_<TOOL>_OAUTH_CLIENT_SECRET`.
+`init` seeds both empty, so the stack starts whether or not you use them.
+
 ## How it's hardened
 
 - **TLS and sign-in.** Caddy terminates TLS for your domain and is the only thing published.

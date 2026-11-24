@@ -31,6 +31,24 @@ OPERATOR = {
     "VALXEL_GITHUB_PROVISIONER_PRIVATE_KEY": "the Provisioning GitHub App's private key (PEM)",
     "VALXEL_GITHUB_OAUTH_CLIENT_SECRET": "the GitHub OAuth App's client secret, for sign-in",
 }
+# Connected apps (Jira, Lucid, Sentry, PagerDuty): each signs in through the vendor's own OAuth
+# client (oauth_connections.py) and is optional — a vendor whose client isn't set shows as not
+# available. Their client secrets are file secrets the compose file declares, so init creates them
+# empty (Compose won't start a service whose declared secret file is missing) and doctor does not
+# require them; their client ids, and Sentry's app slug, are plain .env settings seeded the same way.
+CONNECTED_APP_SECRETS = (
+    "VALXEL_JIRA_OAUTH_CLIENT_SECRET",
+    "VALXEL_LUCID_OAUTH_CLIENT_SECRET",
+    "VALXEL_SENTRY_OAUTH_CLIENT_SECRET",
+    "VALXEL_PAGERDUTY_OAUTH_CLIENT_SECRET",
+)
+CONNECTED_APP_ENV = (
+    "VALXEL_JIRA_OAUTH_CLIENT_ID",
+    "VALXEL_LUCID_OAUTH_CLIENT_ID",
+    "VALXEL_SENTRY_OAUTH_CLIENT_ID",
+    "VALXEL_SENTRY_OAUTH_APP_SLUG",
+    "VALXEL_PAGERDUTY_OAUTH_CLIENT_ID",
+)
 SIGNER = r"^https://github\.com/valxel-platform/agentic-sdlc/\.github/workflows/.+@refs/(heads/main|tags/v.+)$"
 
 
@@ -96,7 +114,7 @@ def init(*, target: Path | None = None, domain: str, email: str, force: bool = F
     db_pw = (sec / "VALXEL_DB_PASSWORD").read_text().strip()
     audit_pw = (sec / "AUDIT_DB_PASSWORD").read_text().strip()
     _secret_file(sec, "DATABASE_URL", f"postgresql://valxel:{db_pw}@postgres:5432/valxel")
-    for name in OPERATOR:
+    for name in (*OPERATOR, *CONNECTED_APP_SECRETS):
         if not (sec / name).exists():
             _secret_file(sec, name, "")
     if not (sec / "gateway.env").exists():
@@ -113,7 +131,8 @@ def init(*, target: Path | None = None, domain: str, email: str, force: bool = F
     env = read_env(target / ".env")
     env.update({"VALXEL_DOMAIN": domain or env.get("VALXEL_DOMAIN", ""),
                 "ACME_EMAIL": email or env.get("ACME_EMAIL", ""), "DOCKER_GID": docker_gid() or env.get("DOCKER_GID", "")})
-    for k in IMAGES + ("VALXEL_GITHUB_APP_ID", "VALXEL_GITHUB_PROVISIONER_APP_ID", "VALXEL_GITHUB_OAUTH_CLIENT_ID"):
+    for k in IMAGES + ("VALXEL_GITHUB_APP_ID", "VALXEL_GITHUB_PROVISIONER_APP_ID",
+                       "VALXEL_GITHUB_OAUTH_CLIENT_ID", *CONNECTED_APP_ENV):
         env.setdefault(k, "")
     write_env(target / ".env", env)
     return target
