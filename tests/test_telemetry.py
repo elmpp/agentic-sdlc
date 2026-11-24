@@ -48,6 +48,24 @@ def test_the_shipped_config_keeps_content_off_until_a_store_is_approved(settings
     assert not Telemetry(telemetry.load_config(settings.config_dir, env={})).enabled
 
 
+def test_the_otlp_header_is_resolved_through_the_secret_store(settings, tmp_path):
+    """The OTLP auth header is a secret, so load_config resolves it through the secret store, not just
+    the environment: on a hardened tier (strict mode, files store) a header file under
+    VALXEL_SECRETS_DIR reaches the exporter, while the same header left in the environment is what
+    strict mode refuses."""
+    from valxel_sdlc import strict
+
+    (tmp_path / "VALXEL_OTEL_HEADERS").write_text("Authorization=Basic Zm9v\n")
+    env = {"VALXEL_OTEL_ENDPOINT": "http://collector:4318",
+           "VALXEL_SECRET_STORE": "files", "VALXEL_SECRETS_DIR": str(tmp_path)}
+    cfg = telemetry.load_config(settings.config_dir, env=env)
+    assert cfg.endpoint == "http://collector:4318"
+    assert cfg.headers == {"Authorization": "Basic Zm9v"}  # from the files store, not the environment
+    # The same header left in the environment on a files/aws store is what strict mode refuses.
+    refused = strict.secrets_in_environment({**env, "VALXEL_OTEL_HEADERS": "Authorization=Basic Zm9v"})
+    assert any("VALXEL_OTEL_HEADERS" in m for m in refused)
+
+
 def test_a_claude_code_session_exports_under_the_tools_span():
     tel, exporter = traced()
     t = task()

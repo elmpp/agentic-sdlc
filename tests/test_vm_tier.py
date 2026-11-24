@@ -92,6 +92,49 @@ def test_init_seeds_the_connected_apps_and_doctor_leaves_them_optional(tmp_path,
     assert all(n not in labelled for n in (*vm.CONNECTED_APP_SECRETS, *vm.CONNECTED_APP_ENV))
 
 
+def test_telemetry_endpoint_rides_env_and_the_otlp_header_is_a_file():
+    """Agent-session traces (valxel_sdlc.telemetry) are optional on the VM. The collector endpoint and
+    the trace-link URL ride in the environment, but the OTLP auth header is a secret, so it's a file,
+    never the environment — strict mode refuses secrets there and load_config reads it from the files
+    store instead."""
+    from valxel_sdlc.secret_ring import is_secret
+
+    c = compose()
+    for svc in ("api", "worker"):
+        env = c["services"][svc]["environment"]
+        secs = c["services"][svc]["secrets"]
+        assert env.get("VALXEL_OTEL_ENDPOINT") == "${VALXEL_OTEL_ENDPOINT:-}"
+        assert env.get("VALXEL_TRACE_URL") == "${VALXEL_TRACE_URL:-}"
+        assert "VALXEL_OTEL_HEADERS" not in env  # a secret: never the environment
+        assert is_secret("VALXEL_OTEL_HEADERS") and "VALXEL_OTEL_HEADERS" in secs  # a file instead
+    assert c["secrets"]["VALXEL_OTEL_HEADERS"] == {"file": "./secrets/VALXEL_OTEL_HEADERS"}
+
+
+def test_init_seeds_telemetry_and_doctor_leaves_it_optional(tmp_path, monkeypatch):
+    """The OTLP header is a file secret the compose file declares, so Compose won't start a service
+    whose file is missing: init must create it empty, and doctor must not ask for it (nor for the
+    endpoint/trace-url settings), or an install that doesn't export traces can't start (or upgrade)."""
+    monkeypatch.setattr(vm.shutil, "which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr(vm, "docker_gid", lambda: "991")
+    t = vm.init(target=tmp_path, domain="valxel.acme.dev", email="ops@acme.dev")
+    sec = t / "secrets"
+    assert all((sec / n).exists() and (sec / n).read_text() == "" for n in vm.TELEMETRY_SECRETS)
+    env = vm.read_env(t / ".env")
+    assert all(env.get(n) == "" for n in vm.TELEMETRY_ENV)  # seeded empty for the operator to fill
+    # Fill only what doctor requires; tracing stays unset and doctor is still all-green.
+    env.update({k: D1.replace("agentic-sdlc", k.lower()) for k in vm.IMAGES})
+    env.update({"VALXEL_GITHUB_APP_ID": "1", "VALXEL_GITHUB_PROVISIONER_APP_ID": "2",
+                "VALXEL_GITHUB_OAUTH_CLIENT_ID": "c"})
+    vm.write_env(t / ".env", env)
+    for n in vm.OPERATOR:
+        (sec / n).write_text("x")
+    (sec / "gateway.env").write_text("ANTHROPIC_API_KEY=sk-ant-x\n")
+    checks = vm.doctor(t, run=ok)
+    assert [w for w, good, _ in checks if not good] == []  # all green though tracing is unset
+    labelled = " ".join(w for w, _, _ in checks)
+    assert all(n not in labelled for n in (*vm.TELEMETRY_SECRETS, *vm.TELEMETRY_ENV))
+
+
 def test_init_generates_the_tools_secrets_and_leaves_the_operators(tmp_path, monkeypatch):
     monkeypatch.setattr(vm, "docker_gid", lambda: "991")
     t = vm.init(target=tmp_path / "vm", domain="valxel.acme.dev", email="ops@acme.dev")

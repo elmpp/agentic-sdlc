@@ -50,6 +50,11 @@ x-tool: &tool
     VALXEL_COGNITO_ISSUER: ${VALXEL_COGNITO_ISSUER:-}
     VALXEL_CHECKPOINT_ARCHIVE_BUCKET: ${VALXEL_CHECKPOINT_ARCHIVE_BUCKET:-}
     VALXEL_LLM_GATEWAY_URL: http://llm-gateway:8080
+    # Traces of agents' work (valxel_sdlc.telemetry): optional, unset means no exporter. The collector
+    # endpoint and the trace-link URL are config; the OTLP auth header is a secret (a file, in secrets
+    # below), so strict mode doesn't refuse it. valxel vm init seeds all three empty.
+    VALXEL_OTEL_ENDPOINT: ${VALXEL_OTEL_ENDPOINT:-}
+    VALXEL_TRACE_URL: ${VALXEL_TRACE_URL:-}
     # The tool's own audit records, through Kafka to the audit sink beside the gateway's (T-113).
     VALXEL_AUDIT_SINK: kafka
     VALXEL_AUDIT_KAFKA_BOOTSTRAP: kafka:9092
@@ -67,6 +72,7 @@ x-tool: &tool
     - VALXEL_LUCID_OAUTH_CLIENT_SECRET
     - VALXEL_SENTRY_OAUTH_CLIENT_SECRET
     - VALXEL_PAGERDUTY_OAUTH_CLIENT_SECRET
+    - VALXEL_OTEL_HEADERS
     - VALXEL_GITHUB_WEBHOOK_SECRET
     - VALXEL_GITHUB_APP_PRIVATE_KEY
     - VALXEL_LLM_GATEWAY_API_KEY
@@ -253,6 +259,7 @@ secrets:
   VALXEL_LUCID_OAUTH_CLIENT_SECRET: {file: ./secrets/VALXEL_LUCID_OAUTH_CLIENT_SECRET}
   VALXEL_SENTRY_OAUTH_CLIENT_SECRET: {file: ./secrets/VALXEL_SENTRY_OAUTH_CLIENT_SECRET}
   VALXEL_PAGERDUTY_OAUTH_CLIENT_SECRET: {file: ./secrets/VALXEL_PAGERDUTY_OAUTH_CLIENT_SECRET}
+  VALXEL_OTEL_HEADERS: {file: ./secrets/VALXEL_OTEL_HEADERS}
   VALXEL_GITHUB_WEBHOOK_SECRET: {file: ./secrets/VALXEL_GITHUB_WEBHOOK_SECRET}
   VALXEL_GITHUB_APP_PRIVATE_KEY: {file: ./secrets/VALXEL_GITHUB_APP_PRIVATE_KEY}
   VALXEL_GITHUB_PROVISIONER_PRIVATE_KEY: {file: ./secrets/VALXEL_GITHUB_PROVISIONER_PRIVATE_KEY}
