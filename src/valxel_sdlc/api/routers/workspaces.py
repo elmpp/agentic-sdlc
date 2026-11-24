@@ -55,10 +55,16 @@ def build(ctx: SimpleNamespace) -> APIRouter:
     @api.post("/workspaces", status_code=201)
     def create_workspace(body: WorkspaceIn, user: User = Depends(current_user)) -> dict:
         """A new workspace, with the signed-in person as its owner, in every approver group."""
-        return ws_call(wsx().create, body.id, name=body.name, actor=user.login, plan=body.plan,
-                       owner={"name": user.name or user.login, "email": user.email,
-                              "github_login": user.login if user.idp == "github" else ""},
-                       self_serve=body.plan != "self-hosted")
+        from ... import tenancy
+
+        # The request is scoped to the person's EXISTING workspaces (tenant_scope), so under enforced
+        # row-level security the new workspace's rows violate the policy (and the "already exists" check
+        # could not see another tenant's workspace of the same id). Creating one is platform work.
+        with tenancy.bound(tenancy.PLATFORM, user.login):
+            return ws_call(wsx().create, body.id, name=body.name, actor=user.login, plan=body.plan,
+                           owner={"name": user.name or user.login, "email": user.email,
+                                  "github_login": user.login if user.idp == "github" else ""},
+                           self_serve=body.plan != "self-hosted")
 
     @api.get("/plans")
     def list_plans(user: User = Depends(current_user)) -> dict:
