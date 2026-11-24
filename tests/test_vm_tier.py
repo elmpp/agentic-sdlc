@@ -45,6 +45,53 @@ def test_the_bundle_is_hardened():
     assert c["networks"]["sessions"]["internal"] is True
 
 
+def test_connected_apps_oauth_clients_reach_the_tool():
+    """Jira, Lucid, Sentry and PagerDuty each sign in through their own OAuth client
+    (oauth_connections.py). On the hardened VM the client ids and Sentry's slug ride in the
+    environment, but the client secrets are files, never the environment. Miss any and a vendor the
+    operator has set up still shows as not available."""
+    from valxel_sdlc.oauth_connections import VENDORS
+    from valxel_sdlc.secret_ring import is_secret
+
+    c = compose()
+    for svc in ("api", "worker"):
+        env = c["services"][svc]["environment"]
+        secs = c["services"][svc]["secrets"]
+        for tool in VENDORS:
+            base = f"VALXEL_{tool.upper()}_OAUTH"
+            assert env.get(f"{base}_CLIENT_ID") == f"${{{base}_CLIENT_ID:-}}", f"{base}_CLIENT_ID misses {svc}"
+            assert is_secret(f"{base}_CLIENT_SECRET") and f"{base}_CLIENT_SECRET" in secs  # a file, not env
+        assert env.get("VALXEL_SENTRY_OAUTH_APP_SLUG") == "${VALXEL_SENTRY_OAUTH_APP_SLUG:-}"
+    for tool in VENDORS:
+        name = f"VALXEL_{tool.upper()}_OAUTH_CLIENT_SECRET"
+        assert c["secrets"][name] == {"file": f"./secrets/{name}"}  # mounted from the secrets folder
+
+
+def test_init_seeds_the_connected_apps_and_doctor_leaves_them_optional(tmp_path, monkeypatch):
+    """The connected apps' client secrets are file secrets the compose file declares, so Compose
+    won't start a service whose file is missing: init must create them empty, and doctor must not
+    ask for them, or an install that doesn't use them can't start (or upgrade)."""
+    monkeypatch.setattr(vm.shutil, "which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr(vm, "docker_gid", lambda: "991")
+    t = vm.init(target=tmp_path, domain="valxel.acme.dev", email="ops@acme.dev")
+    sec = t / "secrets"
+    assert all((sec / n).exists() and (sec / n).read_text() == "" for n in vm.CONNECTED_APP_SECRETS)
+    env = vm.read_env(t / ".env")
+    assert all(env.get(n) == "" for n in vm.CONNECTED_APP_ENV)  # seeded empty for the operator to fill
+    # Fill only what doctor requires; the connected apps stay unset and doctor is still all-green.
+    env.update({k: D1.replace("agentic-sdlc", k.lower()) for k in vm.IMAGES})
+    env.update({"VALXEL_GITHUB_APP_ID": "1", "VALXEL_GITHUB_PROVISIONER_APP_ID": "2",
+                "VALXEL_GITHUB_OAUTH_CLIENT_ID": "c"})
+    vm.write_env(t / ".env", env)
+    for n in vm.OPERATOR:
+        (sec / n).write_text("x")
+    (sec / "gateway.env").write_text("ANTHROPIC_API_KEY=sk-ant-x\n")
+    checks = vm.doctor(t, run=ok)
+    assert [w for w, good, _ in checks if not good] == []  # all green though the apps are unset
+    labelled = " ".join(w for w, _, _ in checks)
+    assert all(n not in labelled for n in (*vm.CONNECTED_APP_SECRETS, *vm.CONNECTED_APP_ENV))
+
+
 def test_init_generates_the_tools_secrets_and_leaves_the_operators(tmp_path, monkeypatch):
     monkeypatch.setattr(vm, "docker_gid", lambda: "991")
     t = vm.init(target=tmp_path / "vm", domain="valxel.acme.dev", email="ops@acme.dev")
