@@ -252,3 +252,7 @@ def add_parser(sub) -> None:
     dv.add_argument("--wipe", action="store_true", help="down: also delete the databases and artifacts")
     dv.add_argument("--org", help="github-apps: register the Apps under this GitHub org (the one you'll install "
                                   "them on); default your own account")
+    dv.add_argument("--base-url", default="", help="github-apps: the public URL GitHub reaches the tool at (the "
+                                                   "VM tier, e.g. https://valxel.example.com); the Apps' homepage, "
+                                                   "callback and webhook point at it. Omit on a laptop: the webhook "
+                                                   "is then left off (GitHub rejects a localhost one).")

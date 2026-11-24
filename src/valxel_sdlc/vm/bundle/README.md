@@ -29,6 +29,18 @@ launcher's token. Fill in the rest where `doctor` says:
 - `secrets/gateway.env`: `ANTHROPIC_API_KEY=...`. Only the gateway reads it.
 - `.env`: the App ids, the OAuth client id, and each image by digest (`...@sha256:...`).
 
+To register the two GitHub Apps against this VM, run the manifest flow from a machine with a
+browser and point it at the VM's public URL:
+
+```sh
+valxel dev github-apps --org <your-org> --base-url https://valxel.example.com
+```
+
+With `--base-url` the Apps' homepage, OAuth callback and webhook all use the domain (GitHub
+delivers events to `/api/webhooks/github`) instead of localhost, which GitHub rejects. Copy the
+resulting App ids into `.env`, and the private keys and the Delivery App's webhook secret into
+`secrets/` (so the App and the tool agree on `VALXEL_GITHUB_WEBHOOK_SECRET`).
+
 Then `sudo valxel vm up`. The tool is at `https://<your domain>`.
 
 ## How it's hardened

@@ -40,12 +40,40 @@ def test_manifest_asks_for_the_install_time_oauth_code_and_the_tool_permissions(
     assert m["callback_urls"] == ["http://localhost:8090/api/connections/github/callback",
                                   "http://localhost:8080/api/connections/github/callback"]
     assert m["setup_url"] == m["callback_urls"][0]
-    assert m["hook_attributes"]["active"] is False  # GitHub can't reach a laptop
+    assert "hook_attributes" not in m  # GitHub rejects a localhost hook url, so a laptop omits the webhook
+    assert "default_events" not in m   # no reachable webhook, no event subscription
     assert m["default_permissions"] == DELIVERY_PERMISSIONS
     assert github_apps.manifest("provisioner", name="p", port=8080, redirect="r")["default_permissions"] == \
         PROVISIONING_PERMISSIONS
     assert github_apps.new_app_url("acme-farm", "s1") == "https://github.com/organizations/acme-farm/settings/apps/new?state=s1"
     assert github_apps.new_app_url("", "s1") == "https://github.com/settings/apps/new?state=s1"
+
+
+def test_manifest_with_a_public_base_url_points_everything_at_it_and_registers_the_webhook():
+    # The VM tier (reachable over the Internet): homepage, callback, setup and webhook all use the base
+    # URL, and GitHub delivers the App's events. The trailing slash is trimmed.
+    m = github_apps.manifest("delivery", name="Valxel delivery", port=8080,
+                             redirect="http://127.0.0.1:5/created", base_url="https://valxel.example.com/")
+    assert m["url"] == "https://valxel.example.com"
+    assert m["callback_urls"] == ["https://valxel.example.com/api/connections/github/callback"]
+    assert m["setup_url"] == "https://valxel.example.com/api/connections/github/callback"
+    assert m["hook_attributes"] == {"url": "https://valxel.example.com/api/webhooks/github", "active": True}
+    assert m["default_events"] == github_apps.EVENTS["delivery"]
+    assert m["public"] is False and m["default_permissions"] == DELIVERY_PERMISSIONS
+    prov = github_apps.manifest("provisioner", name="p", port=8080, redirect="r",
+                                base_url="https://valxel.example.com")
+    assert prov["hook_attributes"]["active"] is True and prov["default_events"] == []
+
+
+def test_public_base_requires_a_reachable_absolute_url():
+    assert github_apps.public_base("") == ""
+    assert github_apps.public_base("  ") == ""
+    assert github_apps.public_base("https://valxel.example.com/") == "https://valxel.example.com"
+    assert github_apps.public_base("https://valxel.vx.mattpenrice.com") == "https://valxel.vx.mattpenrice.com"
+    for bad in ("http://localhost:8080", "https://127.0.0.1", "http://app.localhost", "ftp://x.example.com",
+                "valxel.example.com", "not a url"):
+        with pytest.raises(ValueError):
+            github_apps.public_base(bad)
 
 
 def test_a_one_line_key_from_env_signs():
@@ -59,8 +87,9 @@ def test_a_one_line_key_from_env_signs():
     assert github_app_signer({**prov}, app="provisioner")
 
 
-def _drive(state_seen: list, *, bad_state=False):
-    """Plays the browser and GitHub: load the local page, read the form, come back with a code."""
+def _drive(state_seen: list, *, bad_state=False, manifests=None):
+    """Plays the browser and GitHub: load the local page, read the form, come back with a code.
+    When `manifests` is given, each App's full posted manifest is appended to it."""
 
     def open_browser(url):
         def go():
@@ -70,6 +99,8 @@ def _drive(state_seen: list, *, bad_state=False):
                 manifest = json.loads(unescape(re.search(r'name="manifest" value="([^"]+)"', page).group(1)))
                 state = parse_qs(urlparse(action).query)["state"][0]
                 state_seen.append((manifest["name"], state))
+                if manifests is not None:
+                    manifests.append(manifest)
                 back = urlparse(manifest["redirect_url"])
                 code_state = "forged" if bad_state else state
                 try:
@@ -100,6 +131,38 @@ def test_register_runs_both_apps_and_saves_their_settings(tmp_path, monkeypatch)
     assert env["VALXEL_GITHUB_PROVISIONER_APP_ID"] == "200" and env["VALXEL_GITHUB_WEBHOOK_SECRET"] == "wh-delivery"
     assert env["ANTHROPIC_API_KEY"] == "k"  # the rest of .env stays
     assert oct((tmp_path / ".env").stat().st_mode & 0o777) == "0o600"
+
+
+def test_register_with_a_base_url_posts_public_manifests(tmp_path, monkeypatch):
+    # The VM tier: `--base-url` reaches the manifests the browser posts, so the registered Apps point
+    # their homepage, callback and webhook at the public URL (not localhost).
+    monkeypatch.setattr(laptop, "docker_gid", lambda: "0")
+    laptop.init(target=tmp_path, anthropic_key="k")
+    pem, seen, manifests, codes = _pem(), [], [], []
+
+    def convert(code):
+        codes.append(code)
+        return _created("delivery" if len(codes) == 1 else "provisioner", pem)
+
+    github_apps.register(tmp_path, prefix="Valxel vm", base_url="https://valxel.vx.mattpenrice.com/",
+                         open_browser=_drive(seen, manifests=manifests), convert_fn=convert, timeout=20)
+    assert len(manifests) == 2
+    for m in manifests:
+        assert m["url"] == "https://valxel.vx.mattpenrice.com"
+        assert m["callback_urls"] == ["https://valxel.vx.mattpenrice.com/api/connections/github/callback"]
+        assert m["hook_attributes"] == {"url": "https://valxel.vx.mattpenrice.com/api/webhooks/github",
+                                        "active": True}
+
+
+def test_register_rejects_a_localhost_base_url_before_opening_the_browser(tmp_path, monkeypatch):
+    monkeypatch.setattr(laptop, "docker_gid", lambda: "0")
+    laptop.init(target=tmp_path, anthropic_key="k")
+    opened: list[str] = []
+    with pytest.raises(ValueError, match="public URL"):
+        github_apps.register(tmp_path, base_url="http://localhost:8080",
+                             open_browser=lambda url: opened.append(url),
+                             convert_fn=lambda code: pytest.fail("must not exchange"), timeout=5)
+    assert opened == []  # failed validation before the browser opened
 
 
 def test_a_return_without_this_flows_state_saves_nothing(tmp_path, monkeypatch):

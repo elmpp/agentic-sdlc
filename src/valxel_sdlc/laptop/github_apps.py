@@ -42,20 +42,43 @@ EVENTS = {"delivery": ["pull_request", "check_suite", "check_run", "status", "pu
 
 
 def callback_urls(port: int) -> list[str]:
-    """Where GitHub returns the installer: the tool on this machine, on either laptop port (8080, or
-    8090 beside a local OpenChoreo), so switching modes doesn't need new Apps."""
+    """Where GitHub returns the installer on a laptop: the tool on this machine, on either laptop port
+    (8080, or 8090 beside a local OpenChoreo), so switching modes doesn't need new Apps."""
     ports = [port] + [p for p in (TOOL_PORT, 8090) if p != port]
     return [f"http://localhost:{p}/api/connections/github/callback" for p in ports]
 
 
-def manifest(app: str, *, name: str, port: int, redirect: str) -> dict:
+def public_base(base_url: str) -> str:
+    """A normalised public base URL (scheme + host[:port], no trailing slash), or "" when there is none.
+    GitHub rejects a webhook it can't reach, so a localhost/loopback base counts as no public URL and the
+    caller omits the webhook. Raises ValueError on a value that isn't an absolute, reachable http(s) URL."""
+    base = (base_url or "").strip()
+    if not base:
+        return ""
+    u = urlparse(base)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise ValueError(f"--base-url must be an absolute http(s) URL, e.g. https://valxel.example.com; got {base!r}")
+    if u.hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or u.hostname.endswith(".localhost"):
+        raise ValueError("--base-url must be a public URL GitHub can reach, not localhost; omit it on a laptop "
+                         "(the webhook is then left off and the watcher polls for CI/PR changes instead)")
+    return base.rstrip("/")
+
+
+def manifest(app: str, *, name: str, port: int, redirect: str, base_url: str = "") -> dict:
+    """GitHub App manifest. With a public `base_url` (the VM tier, reachable over the Internet) the App's
+    homepage, OAuth callback and webhook all point at it and GitHub delivers webhooks for its events.
+    Without one (a laptop, the default) the homepage and callback stay on localhost and the webhook and
+    events are omitted: GitHub rejects a localhost hook url, so the laptop's watcher polls instead."""
     _, _, perms, what = APPS[app]
-    urls = callback_urls(port)
-    return {
+    base = public_base(base_url)
+    if base:
+        home_url, urls = base, [f"{base}/api/connections/github/callback"]
+    else:
+        home_url, urls = f"http://localhost:{port}", callback_urls(port)
+    data = {
         "name": name,
-        "url": f"http://localhost:{port}",
-        "description": f"Valxel on a laptop ({app}): {what}.",
-        "hook_attributes": {"url": f"http://localhost:{port}/api/webhooks/github", "active": False},
+        "url": home_url,
+        "description": f"Valxel ({app}): {what}.",
         "redirect_url": redirect,
         "callback_urls": urls,
         "setup_url": urls[0],
@@ -63,8 +86,12 @@ def manifest(app: str, *, name: str, port: int, redirect: str) -> dict:
         "request_oauth_on_install": True,  # the code Valxel uses to check the install is the installer's
         "public": False,
         "default_permissions": dict(perms),
-        "default_events": EVENTS[app],
     }
+    if base:
+        # GitHub can reach a public URL: register the webhook active and subscribe to the App's events.
+        data["hook_attributes"] = {"url": f"{base}/api/webhooks/github", "active": True}
+        data["default_events"] = EVENTS[app]
+    return data
 
 
 def settings_from(app: str, created: dict) -> dict[str, str]:
@@ -107,8 +134,10 @@ def form_page(action: str, data: dict) -> bytes:
 class _Flow:
     """One App at a time through the manifest flow, served on 127.0.0.1."""
 
-    def __init__(self, apps: list[str], *, org: str, port: int, prefix: str, convert_fn=convert) -> None:
+    def __init__(self, apps: list[str], *, org: str, port: int, prefix: str, convert_fn=convert,
+                 base_url: str = "") -> None:
         self.apps, self.org, self.port, self.prefix, self.convert = apps, org, port, prefix, convert_fn
+        self.base_url = base_url
         self.state = {a: secrets.token_urlsafe(24) for a in apps}
         self.results: dict[str, dict] = {}
         self.error = ""
@@ -125,7 +154,8 @@ class _Flow:
             app = self.next_app()
             if app is None:
                 return 200, b"Both Apps are registered. You can close this tab.", {}
-            data = manifest(app, name=f"{self.prefix} {app}", port=self.port, redirect=f"{local}/created")
+            data = manifest(app, name=f"{self.prefix} {app}", port=self.port, redirect=f"{local}/created",
+                            base_url=self.base_url)
             return 200, form_page(new_app_url(self.org, self.state[app]), data), {"Content-Type": "text/html"}
         if url.path == "/created":
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
@@ -147,12 +177,17 @@ class _Flow:
 
 
 def register(target: Path | None = None, *, org: str = "", apps: list[str] | None = None, prefix: str = "",
-             open_browser=webbrowser.open, convert_fn=convert, timeout: float = 1800) -> dict[str, dict]:
-    """Run the manifest flow for each App and save their settings to .env. Returns the conversions."""
+             open_browser=webbrowser.open, convert_fn=convert, timeout: float = 1800,
+             base_url: str = "") -> dict[str, dict]:
+    """Run the manifest flow for each App and save their settings to .env. Returns the conversions.
+
+    `base_url` is the public URL GitHub reaches the tool at (the VM tier); omit it on a laptop. It is
+    validated up front, so a localhost or malformed value fails before the browser opens."""
     target = target or home()
+    base_url = public_base(base_url)  # validate/normalise before opening the browser
     apps = apps or list(APPS)
     prefix = prefix or f"Valxel laptop {secrets.token_hex(2)}"  # App names are unique across GitHub
-    flow = _Flow(apps, org=org, port=tool_port(target), prefix=prefix, convert_fn=convert_fn)
+    flow = _Flow(apps, org=org, port=tool_port(target), prefix=prefix, convert_fn=convert_fn, base_url=base_url)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # the standard library's name
@@ -191,8 +226,8 @@ def main(args) -> int:
         print("Run `valxel dev init` first.")
         return 1
     try:
-        made = register(target, org=args.org or "")
-    except (RuntimeError, TimeoutError) as exc:
+        made = register(target, org=args.org or "", base_url=getattr(args, "base_url", "") or "")
+    except (RuntimeError, TimeoutError, ValueError) as exc:
         print(str(exc))
         return 1
     for app, created in made.items():
