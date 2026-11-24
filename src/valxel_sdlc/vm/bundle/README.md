@@ -52,6 +52,16 @@ then set its id in `.env` (`VALXEL_<TOOL>_OAUTH_CLIENT_ID`, plus `VALXEL_SENTRY_
 Sentry's public integration) and write its secret to `secrets/VALXEL_<TOOL>_OAUTH_CLIENT_SECRET`.
 `init` seeds both empty, so the stack starts whether or not you use them.
 
+## Observability (optional)
+
+Agent sessions can export OpenTelemetry traces to your own OTLP/HTTP collector (Langfuse, Tempo,
+Jaeger). It's optional: unset, nothing is exported and `doctor` doesn't ask. To turn it on, set
+`VALXEL_OTEL_ENDPOINT` in `.env` (and `VALXEL_TRACE_URL` for the link the tool shows beside a session,
+with `{trace_id}` filled in). If your collector needs auth, write the header to
+`secrets/VALXEL_OTEL_HEADERS` (comma-separated, e.g. `Authorization=Basic <base64>`) — it's a file
+secret, never the environment, so strict mode keeps it out of the process environment. `init` seeds
+all three empty.
+
 ## How it's hardened
 
 - **TLS and sign-in.** Caddy terminates TLS for your domain and is the only thing published.

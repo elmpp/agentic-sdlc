@@ -49,6 +49,14 @@ CONNECTED_APP_ENV = (
     "VALXEL_SENTRY_OAUTH_APP_SLUG",
     "VALXEL_PAGERDUTY_OAUTH_CLIENT_ID",
 )
+# Telemetry (OpenTelemetry/OTLP, valxel_sdlc.telemetry): agent-session traces to the operator's own
+# collector. All optional — unset, nothing is exported and doctor doesn't ask. The collector endpoint
+# and the trace-link URL are plain .env settings; the OTLP auth header (e.g. Langfuse Basic auth) is a
+# secret, so it's a file secret the compose file declares. Strict mode refuses secrets in the
+# environment, so the header reaches the exporter through the files store (telemetry.load_config via
+# secret_ring), never the environment. init creates the secret file empty and seeds the .env keys.
+TELEMETRY_SECRETS = ("VALXEL_OTEL_HEADERS",)
+TELEMETRY_ENV = ("VALXEL_OTEL_ENDPOINT", "VALXEL_TRACE_URL")
 SIGNER = r"^https://github\.com/valxel-platform/agentic-sdlc/\.github/workflows/.+@refs/(heads/main|tags/v.+)$"
 
 
@@ -114,7 +122,7 @@ def init(*, target: Path | None = None, domain: str, email: str, force: bool = F
     db_pw = (sec / "VALXEL_DB_PASSWORD").read_text().strip()
     audit_pw = (sec / "AUDIT_DB_PASSWORD").read_text().strip()
     _secret_file(sec, "DATABASE_URL", f"postgresql://valxel:{db_pw}@postgres:5432/valxel")
-    for name in (*OPERATOR, *CONNECTED_APP_SECRETS):
+    for name in (*OPERATOR, *CONNECTED_APP_SECRETS, *TELEMETRY_SECRETS):
         if not (sec / name).exists():
             _secret_file(sec, name, "")
     if not (sec / "gateway.env").exists():
@@ -132,7 +140,7 @@ def init(*, target: Path | None = None, domain: str, email: str, force: bool = F
     env.update({"VALXEL_DOMAIN": domain or env.get("VALXEL_DOMAIN", ""),
                 "ACME_EMAIL": email or env.get("ACME_EMAIL", ""), "DOCKER_GID": docker_gid() or env.get("DOCKER_GID", "")})
     for k in IMAGES + ("VALXEL_GITHUB_APP_ID", "VALXEL_GITHUB_PROVISIONER_APP_ID",
-                       "VALXEL_GITHUB_OAUTH_CLIENT_ID", *CONNECTED_APP_ENV):
+                       "VALXEL_GITHUB_OAUTH_CLIENT_ID", *CONNECTED_APP_ENV, *TELEMETRY_ENV):
         env.setdefault(k, "")
     write_env(target / ".env", env)
     return target

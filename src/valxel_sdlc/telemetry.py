@@ -136,6 +136,7 @@ def _headers(raw: str) -> dict:
 
 def load_config(config_dir: Path | str, env=None) -> TelemetryConfig:
     env = env if env is not None else os.environ
+    from . import secret_ring
     from .config import config_file
 
     path = config_file(config_dir, "telemetry.yaml")
@@ -147,7 +148,10 @@ def load_config(config_dir: Path | str, env=None) -> TelemetryConfig:
         raise ValueError(f"telemetry.yaml: content levels must be one of {LEVELS}, not {bad}")
     return TelemetryConfig(
         endpoint=(env.get(raw.get("endpoint_env") or "VALXEL_OTEL_ENDPOINT") or "").rstrip("/"),
-        headers=_headers(env.get(raw.get("headers_env") or "VALXEL_OTEL_HEADERS", "")),
+        # The OTLP auth header is a secret (secret_ring.SECRET_NAMES): resolve it through the secret
+        # store, not just the environment, so a hardened tier that keeps secrets out of the
+        # environment (strict mode, files/AWS store) can still authenticate the exporter.
+        headers=_headers(secret_ring.get(raw.get("headers_env") or "VALXEL_OTEL_HEADERS", env=env)),
         service_name=str(raw.get("service_name") or "valxel-sdlc"),
         content=content, content_store_baa=bool(raw.get("content_store_baa")),
         trace_url=env.get(raw.get("trace_url_env") or "VALXEL_TRACE_URL", ""))
