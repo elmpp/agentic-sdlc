@@ -28,10 +28,11 @@ import dataclasses
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 
-from .. import gateway_sessions, plugins, sessions
+from .. import gateway_sessions, plugins, secret_ring, sessions
 from ..gateway import ModelGateway, ModelResponse, PolicyViolation, ProviderUnavailable, is_transient
 from ..sandbox import claude_sandbox, claude_settings, session_env
 from .base import AgentResult, AgentTask
@@ -92,6 +93,25 @@ def session_options(task: AgentTask, role, model: str, *, cwd: str | None, plugi
     }
 
 
+def subscription_env(settings) -> dict[str, str]:
+    """The env overlay for a ``claude_code`` session on the Claude subscription
+    (``VALXEL_CLAUDE_AUTH=subscription``): the saved OAuth login reaches Anthropic through the
+    pass-through proxy (``settings.claude_proxy_url``), and no gateway credential is minted.
+
+    The two blanks are load-bearing, not belt-and-braces: ``ANTHROPIC_API_KEY`` and
+    ``ANTHROPIC_AUTH_TOKEN`` are both in ``sandbox.MODEL_KEYS["claude_code"]``, so
+    ``sandbox.session_env`` auto-loads a stored Console key / gateway token from the secret store
+    (sandbox.py:96-103) and Claude Code would let it out-rank the OAuth login. Overlaying them with
+    ``""`` here keeps the subscription token the only model credential the session holds (REQ-004)."""
+    token = secret_ring.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if not token:
+        raise ProviderUnavailable(
+            "claude_code: VALXEL_CLAUDE_AUTH=subscription but no CLAUDE_CODE_OAUTH_TOKEN in the "
+            "secret store — escrow the subscription token (claude setup-token) first")
+    return {"ANTHROPIC_BASE_URL": settings.claude_proxy_url, "CLAUDE_CODE_OAUTH_TOKEN": token,
+            "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""}
+
+
 class ClaudeCodeRuntime:
     name = "claude_code"
     capabilities = frozenset({"text", "native_plugins", "subagents", "code_execution"})
@@ -113,7 +133,10 @@ class ClaudeCodeRuntime:
         if not self.gateway.allowed(role.provider, task.tags.data_class):
             raise PolicyViolation(f"{task.tags.data_class} data may not reach {role.provider!r}")
         try:
-            return asyncio.run(self._run(task, role.model))
+            # Hold a subscription concurrency slot across the whole launch (REQ-006); in gateway/
+            # default mode the slot is a nullcontext and nothing is throttled.
+            with _subscription_slot(self.gateway.settings):
+                return asyncio.run(self._run(task, role.model))
         except ProviderUnavailable:
             raise
         except Exception as exc:  # the CLI reports overload and rate limits as text
@@ -132,7 +155,13 @@ class ClaudeCodeRuntime:
             kwargs = session_options(task, role, model, cwd=self.cwd, plugin_dirs=self.plugins_for(task.role), home=home)
             store = sessions.TranscriptStore(self.gateway.settings.artifact_dir)
             with contextlib.ExitStack() as stack:
-                if gateway_sessions.configured():  # a short-lived gateway token instead of the tool's key
+                settings = self.gateway.settings
+                # Subscription first: in subscription mode gateway_sessions.configured() stays true
+                # (the generic one-call roles keep the gateway — REQ-003), so only a subscription-
+                # first branch stops the seam minting a gateway token for a claude_code session.
+                if settings.claude_auth == "subscription":
+                    kwargs["env"] = {**kwargs["env"], **subscription_env(settings)}
+                elif gateway_sessions.configured():  # a short-lived gateway token instead of the tool's key
                     try:
                         token_env = stack.enter_context(gateway_sessions.session_token(
                             task.tags, model, kwargs.get("max_budget_usd") or session_cap(task, role),
@@ -245,6 +274,38 @@ class ClaudeCodeRuntime:
             model=model,
             runtime=self.name,
         )
+
+
+# Bounded concurrency for subscription sessions (REQ-006). Each ``run`` is its own ``asyncio.run``
+# on an engine ``ThreadPoolExecutor`` thread, so the cap must be held ACROSS those feature threads,
+# not inside one event loop — hence a process-global ``threading.BoundedSemaphore`` rather than an
+# asyncio primitive. The cap is GLOBAL (not per-role — OQ-3) and PER-PROCESS: with N worker
+# processes the effective ceiling is N x the cap, and cross-process coordination is out of scope (an
+# estate concern). The size is read once, when the semaphore is first created; changing
+# ``VALXEL_SUBSCRIPTION_MAX_SESSIONS`` needs a worker restart (ODP-2), acceptable for the homelab.
+_SUB_SEM: threading.BoundedSemaphore | None = None
+_SUB_SEM_LOCK = threading.Lock()
+
+
+def _subscription_slot(settings) -> contextlib.AbstractContextManager[object]:
+    """A concurrency slot for one subscription ``claude_code`` session, or an inert slot otherwise.
+
+    In subscription mode (``VALXEL_CLAUDE_AUTH=subscription``) this returns the process-global
+    ``BoundedSemaphore`` sized by ``VALXEL_SUBSCRIPTION_MAX_SESSIONS`` (default 2): at most that many
+    sessions launch at once and the rest block on acquire until a slot frees, released on completion
+    or error by the ``with`` in ``run``. In gateway/default mode it returns ``contextlib.nullcontext``
+    — no throttle, the gateway path stays byte-for-byte unchanged (REQ-001). The ``getattr`` defaults
+    keep this safe before the REQ-001 settings surface co-merges: a settings object without
+    ``claude_auth`` reads as gateway, and the size defaults to 2."""
+    if getattr(settings, "claude_auth", "gateway") != "subscription":
+        return contextlib.nullcontext()
+    global _SUB_SEM  # noqa: PLW0603 - a lazily-sized module-global singleton, guarded by the lock
+    with _SUB_SEM_LOCK:
+        sem = _SUB_SEM
+        if sem is None:
+            sem = _SUB_SEM = threading.BoundedSemaphore(
+                max(1, int(getattr(settings, "subscription_max_sessions", 2))))
+    return sem
 
 
 def steps_for(task: AgentTask):

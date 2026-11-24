@@ -211,7 +211,79 @@ never at the same time.
 Test a restore at least every quarter: restore the databases and artifacts into a second
 namespace, then run section 3's checks against it.
 
-## 6. Uninstall
+## 6. The Claude subscription lane (optional)
+
+By default every model call goes through the LLM gateway (section 1.6): it mints a short-lived token
+per session and alone holds the model key. The **subscription lane** is an alternative for the
+`claude_code` roles only — architect, coder, reviewer and reviewer_shadow, the multi-turn sessions
+that read and change repositories. With it, those sessions reach Anthropic over a **pass-through
+proxy** using a Claude subscription's OAuth token, and no gateway token is minted for them. The
+one-call `generic` roles (spec, planner, router and the rest) keep using the gateway, so this is a
+partial reroute, not a replacement.
+
+It trades the gateway's per-session dollar pricing for a subscription's own limits. Turn it on only
+with a subscription whose terms cover this use and a proxy you control; otherwise leave the gateway
+in place.
+
+### Turn it on
+
+| Setting | Default | What it does |
+|---|---|---|
+| `VALXEL_CLAUDE_AUTH` | `gateway` | `subscription` routes the `claude_code` roles to the subscription lane. Any other value, or unset, keeps every role on the gateway. |
+| `VALXEL_CLAUDE_PROXY_URL` | — | The pass-through proxy, set as each subscription session's `ANTHROPIC_BASE_URL`. |
+| `VALXEL_SUBSCRIPTION_MAX_SESSIONS` | `2` | How many `claude_code` sessions may run on the subscription at once. Keep it low. |
+
+If your estate already names a variable for the Anthropic pass-through proxy, point
+`VALXEL_CLAUDE_PROXY_URL` at that same proxy rather than standing up a second one.
+
+### Revert in one line
+
+Set `VALXEL_CLAUDE_AUTH=gateway`, or unset it, and every role — `claude_code` included — goes back
+through the gateway on its next session. No code change, no artifact change, nothing to tear down:
+the seam simply takes its unchanged gateway branch again.
+
+### The subscription token
+
+The lane reads the OAuth token from the deployment's configured secret store under the name
+`CLAUDE_CODE_OAUTH_TOKEN` (for the files store, that is `VALXEL_SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN`
+— the same store the tool reads other model credentials from). Mint and escrow the token outside the
+tool (`claude setup-token`, then your secret store), and stand up the proxy route separately; the
+tool only consumes them. If the token is missing when a `claude_code` session starts, that session
+fails as **provider-unavailable** — the error names the setting and `claude setup-token` — and the
+role's configured `fallback:` takes over, rather than the run quietly using another key.
+
+### What stays confined
+
+The OAuth token rides only the `claude_code` session's environment. The sandbox's per-runtime
+allow-list carries `ANTHROPIC_BASE_URL` and `CLAUDE_CODE_OAUTH_TOKEN` for `claude_code` but not for
+`codex` or `generic`, so those runtimes never see it, and it is scrubbed from transcripts and logs.
+One deliberate difference from the gateway: the gateway hands each session a **short-lived** token,
+whereas the subscription lane places a **long-lived** OAuth token into the session environment —
+and, in sandbox/remote mode, into the session pod's spec. Confinement still holds, but prefer
+**local** execution while you gain confidence in the lane, before running it under remote sandboxing.
+
+### Spend, without the gateway's caps
+
+Rerouting past the gateway gives up its per-session dollar caps, but **not** every limit — a
+`claude_code` session is still bounded:
+
+- the SDK's client-side **`max_budget_usd`** (the per-session cap, from the role's `max_call_usd` and
+  the task's budget) is still applied to each session;
+- the role's **`max_turns`** still bounds each session;
+- **`VALXEL_SUBSCRIPTION_MAX_SESSIONS`** bounds how many run at once;
+- the subscription's own rate and weekly limits are the outer ceiling. When one is hit, the CLI
+  reports it as a transient error, which surfaces as provider-unavailable, so the role's `fallback:`
+  (or a later retry) applies rather than the feature failing outright.
+
+### What the proxy must do
+
+The proxy at `VALXEL_CLAUDE_PROXY_URL` must be a faithful pass-through: it **must forward the
+`anthropic-beta` header and the session's `Authorization` header unchanged**, because the OAuth
+capability rides on them. It should stream responses through without buffering or rewriting the body.
+This is a property of your estate's proxy, not something the tool can enforce — a proxy that strips
+or rewrites those headers will break every subscription session.
+
+## 7. Uninstall
 
 `helm uninstall valxel -n valxel` removes the tool. Some things stay on purpose: the artifacts
 volume (the chart marks it to keep), the databases and the buckets. Products' repos and

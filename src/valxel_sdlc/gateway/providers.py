@@ -68,9 +68,13 @@ class ProviderUnavailable(RuntimeError):
 
 
 # Phrases that mark a transient provider failure in an error message (the Claude and Codex CLIs
-# report through their exit status and text, not typed errors).
+# report through their exit status and text, not typed errors). The last two are Claude Code's
+# subscription 5-hour and weekly limits: the CLI reports those as a human result message (is_error)
+# with no "429" in it, so they are matched here by their own phrasing — kept narrow to the plan-usage
+# wording, not a bare "limit reached" that a turn or budget cap would also trip.
 TRANSIENT_MARKERS = ("rate limit", "rate_limit", "overloaded", "429", "529", "502", "503", "504",
-                     "timed out", "timeout", "connection error", "connection reset", "service unavailable")
+                     "timed out", "timeout", "connection error", "connection reset", "service unavailable",
+                     "usage limit reached", "weekly limit reached")
 
 
 def is_transient(message: str) -> bool:
