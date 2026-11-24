@@ -231,7 +231,10 @@ def create_app(engine: FeatureEngine | None = None, auth: AuthConfig | None = No
 
         with tenancy.bound(tenancy.PLATFORM):  # who it is: memberships span workspaces
             who = ctx.signed_in(request) if state["engine"] is not None else None
-            scope = (tenancy.workspaces_of(state["engine"].services.settings.registry, ctx.lanes_for(who))
+            # Their products' workspaces, and every workspace they are a member of (one with no products
+            # yet would otherwise be invisible to its own owner).
+            scope = ((tenancy.workspaces_of(state["engine"].services.settings.registry, ctx.lanes_for(who))
+                      | set(who.roles))
                      if who is not None else tenancy.PLATFORM)
         with tenancy.bound(scope, who.login if who is not None else ""):
             return await call_next(request)

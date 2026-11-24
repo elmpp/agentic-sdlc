@@ -50,10 +50,16 @@ def make_context(engine: FeatureEngine | None, auth: AuthConfig | None, oauth: G
         ws = eng().services.workspaces
         if ws is None:
             return user
-        mine = ws.memberships(user.login, user.email)
-        user.roles = {m["workspace"]: m["role"] for m in mine}
-        user.products = {m["workspace"]: list(m.get("products") or []) for m in mine}
-        user.groups = ws.groups_of({m["id"] for m in mine}, set(user.roles))
+        from .. import tenancy
+
+        # Who the person is spans workspaces, so the lookup is platform work: under enforced row-level
+        # security the request's own scope (from the registry's products) would hide the member rows of
+        # a workspace that has no products yet — e.g. one just created in the UI.
+        with tenancy.bound(tenancy.PLATFORM):
+            mine = ws.memberships(user.login, user.email)
+            user.roles = {m["workspace"]: m["role"] for m in mine}
+            user.products = {m["workspace"]: list(m.get("products") or []) for m in mine}
+            user.groups = ws.groups_of({m["id"] for m in mine}, set(user.roles))
         return user
 
     def session(request: Request) -> dict | None:
