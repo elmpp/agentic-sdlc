@@ -54,8 +54,9 @@ COPY pyproject.toml README.md requirements.lock ./
 # CI fails when they differ), then the tool itself with no further resolution.
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 COPY src ./src
-RUN pip install --no-cache-dir --no-deps .
+# config/ must be present before the wheel build: pyproject force-includes it as valxel_sdlc/_config.
 COPY config ./config
+RUN pip install --no-cache-dir --no-deps .
 # Sample governance repos, used only when VALXEL_GOVERNANCE_SOURCE=local.
 COPY examples ./examples
 COPY --from=web /web/dist ./web/dist
