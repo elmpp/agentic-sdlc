@@ -816,6 +816,9 @@ export interface Me {
   tracing?: boolean;
   /** The tool's owners (VALXEL_EVAL_APPROVERS): its health across products, drift, safe mode. */
   tool_owner?: boolean;
+  /** A member of the platform's org: sees platform-only things (unmatched signals). The web app
+   * reads this to avoid calling platform-only endpoints that would answer 403 to everyone else. */
+  platform?: boolean;
   email?: string;
   idp?: "github" | "cognito" | "dev";
   strong?: boolean; // two factors at sign-in (a passkey through Cognito)

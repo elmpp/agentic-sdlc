@@ -113,9 +113,12 @@ function ReportProblem({ me, onCancel }: { me: Me; onCancel: () => void }) {
 
 /** Signals that matched no product: a mislabelled alert or an unregistered component. Only members of
  * the platform's organization see them (the API answers 403 to everyone else, and this stays hidden). */
-function UnmatchedSignals() {
+function UnmatchedSignals({ enabled }: { enabled: boolean }) {
   const [rows, setRows] = useState<UnmatchedSignal[] | null>(null);
   const load = useCallback(() => {
+    // Only the platform org sees these; for everyone else the call 403s and the browser logs it,
+    // so don't make it at all unless the person is a member (api/routers/signals.py).
+    if (!enabled) return;
     api
       .unmatchedSignals()
       .then((r) => {
@@ -124,10 +127,10 @@ function UnmatchedSignals() {
       .catch(() => {
         setRows(null);
       });
-  }, []);
+  }, [enabled]);
   useEffect(load, [load]);
   useLive(load, (e) => e.type === "signal.unmatched");
-  if (!rows || rows.length === 0) return null;
+  if (!enabled || !rows || rows.length === 0) return null;
   return (
     <section className="panel" aria-labelledby="h-unmatched">
       <h2 id="h-unmatched" className="section-title">
@@ -237,7 +240,7 @@ export function IncidentsPage({ me }: { me: Me }) {
           </ul>
         </section>
       )}
-      <UnmatchedSignals />
+      <UnmatchedSignals enabled={!!me.platform} />
     </>
   );
 }

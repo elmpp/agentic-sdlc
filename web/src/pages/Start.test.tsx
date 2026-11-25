@@ -182,7 +182,7 @@ describe("ChoosePlan", () => {
     renderStart("/start");
     await user.click(await screen.findByRole("radio", { name: /Lite/ }));
     await user.type(screen.getByPlaceholderText("Acme Farms"), "Acme Farms!");
-    expect(screen.getByLabelText(/Id lowercase/)).toHaveValue("acme-farms");
+    expect(screen.getByLabelText(/Id/)).toHaveValue("acme-farms");
   });
 
   it("creates the workspace and navigates to /start/:ws on submit", async () => {
@@ -205,7 +205,7 @@ describe("ChoosePlan", () => {
     renderStart("/start");
     await user.click(await screen.findByRole("radio", { name: /Lite/ }));
     await user.type(screen.getByPlaceholderText("Acme Farms"), "Acme");
-    const id = screen.getByLabelText(/Id lowercase/);
+    const id = screen.getByLabelText(/Id/);
     await user.clear(id);
     await user.type(id, "AB");
     expect((id as HTMLInputElement).checkValidity()).toBe(false);
