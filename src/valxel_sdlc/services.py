@@ -271,12 +271,13 @@ def build_services(
     packages: PackageRegistry | None = None,
     diagrams: dict[str, DiagramPublisher] | None = None,
     trackers: dict[str, WorkTracker] | None = None,
+    delivery_github: bool = True,
 ) -> Services:
     settings = settings or load_settings()
     ledger = ledger or InMemoryLedger()
     gateway, runtimes, available = agent_stack(settings, ledger)
     if github is None or openchoreo is None:
-        live_github, live_oc = default_delivery(settings)
+        live_github, live_oc = default_delivery(settings, delivery_github=delivery_github)
         github, openchoreo = github or live_github, openchoreo or live_oc
     svc = Services(
         settings=settings,
@@ -485,16 +486,23 @@ class DeliveryConfigError(RuntimeError):
     pass
 
 
-def default_delivery(settings: Settings) -> tuple[GitHub, OpenChoreo]:
+def default_delivery(settings: Settings, *, delivery_github: bool = True) -> tuple[GitHub, OpenChoreo]:
     """VALXEL_DELIVERY=live opens real pull requests and runs real builds and deployments;
-    anything else keeps both in memory. Live mode needs the GitHub App and OpenChoreo settings."""
+    anything else keeps both in memory. Live mode needs the GitHub App and OpenChoreo settings.
+
+    `delivery_github=False` is for a process that never acts as the Delivery App: the provisioning
+    worker (security S4) signs only for the Provisioning App and is deliberately not given the
+    Delivery App's key. It still gets the real OpenChoreo (it registers components for the repos it
+    creates), but a stub Delivery GitHub it never uses, so start-up doesn't demand a Delivery App the
+    process must not hold."""
     import os
 
     delivery = os.environ.get("VALXEL_DELIVERY", "stub").lower()
     if delivery == "local":  # the laptop tier (ADR 0007): GitHub for real, builds and deploys here
         from .integrations.github import DELIVERY_PERMISSIONS, GitHubRest
 
-        github = GitHubRest(local_tokens(settings, DELIVERY_PERMISSIONS), api=settings.github_api)
+        github = (GitHubRest(local_tokens(settings, DELIVERY_PERMISSIONS), api=settings.github_api)
+                  if delivery_github else StubGitHub())
         if local_runtime() == "openchoreo":  # OpenChoreo on this machine (`valxel dev cluster up`)
             return github, openchoreo_client(settings, needs="VALXEL_LOCAL_RUNTIME=openchoreo")
         return github, StubOpenChoreo()
@@ -504,14 +512,16 @@ def default_delivery(settings: Settings) -> tuple[GitHub, OpenChoreo]:
 
     from .signing import github_app_configured, github_app_tokens
 
-    missing = [] if github_app_configured() else [
-        "VALXEL_GITHUB_APP_ID and a key (VALXEL_GITHUB_APP_KMS_KEY_ID, VALXEL_GITHUB_APP_PRIVATE_KEY or "
-        "VALXEL_GITHUB_APP_PRIVATE_KEY_FILE)"]
+    missing = []
+    if delivery_github and not github_app_configured():
+        missing.append("VALXEL_GITHUB_APP_ID and a key (VALXEL_GITHUB_APP_KMS_KEY_ID, "
+                       "VALXEL_GITHUB_APP_PRIVATE_KEY or VALXEL_GITHUB_APP_PRIVATE_KEY_FILE)")
     missing += openchoreo_missing(settings)
     if missing:
         raise DeliveryConfigError(f"VALXEL_DELIVERY=live needs {', '.join(missing)}")
-    tokens = github_app_tokens(api=settings.github_api, permissions=DELIVERY_PERMISSIONS)
-    return GitHubRest(tokens, api=settings.github_api), openchoreo_client(settings)
+    github = (GitHubRest(github_app_tokens(api=settings.github_api, permissions=DELIVERY_PERMISSIONS),
+                         api=settings.github_api) if delivery_github else StubGitHub())
+    return github, openchoreo_client(settings)
 
 
 def local_runtime() -> str:

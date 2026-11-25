@@ -48,14 +48,14 @@ _UNAUDITED = ("/api/auth/", "/api/healthz", "/api/events")
 _UNAUDITED_PATHS = {"/api/me", "/api/me/notifications"}
 
 
-def create_engine_from_env() -> tuple[FeatureEngine, Any]:
+def create_engine_from_env(*, delivery_github: bool = True) -> tuple[FeatureEngine, Any]:
     from ..tenancy import PLATFORM, bound
 
     with bound(PLATFORM):  # setting up is the platform's work (valxel_sdlc.tenancy)
-        return _create_engine_from_env()
+        return _create_engine_from_env(delivery_github=delivery_github)
 
 
-def _create_engine_from_env() -> tuple[FeatureEngine, Any]:
+def _create_engine_from_env(*, delivery_github: bool = True) -> tuple[FeatureEngine, Any]:
     settings = load_settings()
     if settings.database_url:
         from langgraph.checkpoint.postgres import PostgresSaver
@@ -73,7 +73,8 @@ def _create_engine_from_env() -> tuple[FeatureEngine, Any]:
         from ..integrations.catalog import PostgresCatalog
         from ..ops.signals import PostgresSignalStore
 
-        services = build_services(settings, ledger=PostgresLedger(pool), catalog=PostgresCatalog(pool))
+        services = build_services(settings, ledger=PostgresLedger(pool), catalog=PostgresCatalog(pool),
+                                  delivery_github=delivery_github)
         from ..evals import PostgresEvalStore
 
         services.evals = PostgresEvalStore(pool)
@@ -139,7 +140,7 @@ def _create_engine_from_env() -> tuple[FeatureEngine, Any]:
 
     from ..secret_scrub import ScrubbingSerde, keep_excerpts
 
-    services = build_services(settings, ledger=InMemoryLedger())
+    services = build_services(settings, ledger=InMemoryLedger(), delivery_github=delivery_github)
     return FeatureEngine(services, keep_excerpts(InMemorySaver(serde=ScrubbingSerde())), InMemoryIndex()), None
 
 
