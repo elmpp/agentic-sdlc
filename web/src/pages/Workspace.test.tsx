@@ -188,7 +188,7 @@ describe("WorkspacesPage", () => {
     // whole name in one change event (typing char by char would freeze it
     // after the first character).
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Acme Farms" } });
-    expect(screen.getByLabelText(/Id /)).toHaveValue("acme-farms");
+    expect(screen.getByLabelText(/Id/)).toHaveValue("acme-farms");
     await user.click(screen.getByRole("button", { name: "Create workspace" }));
     await waitFor(() =>
       expect(vi.mocked(api.createWorkspace)).toHaveBeenCalledWith({

@@ -324,7 +324,9 @@ def test_a_signal_for_no_product_is_kept_with_why_for_the_platform_team(tmp_path
     assert client.get("/api/signals/unmatched").status_code == 401
     client.post("/api/auth/dev-login", json={"login": "maria", "orgs": ["acme-clinic"]})
     assert client.get("/api/signals/unmatched").status_code == 403  # could be any product's: platform team only
+    assert client.get("/api/me").json()["platform"] is False  # web uses this to not call the 403 endpoint
     client.post("/api/auth/dev-login", json={"login": "platform-owner", "orgs": ["valxel-platform"]})
+    assert client.get("/api/me").json()["platform"] is True
     r = client.get("/api/signals/unmatched?limit=2").json()
     assert r["count"] == 2 and r["signals"][0]["source"] == "ticket"
     assert set(r["signals"][1]) >= {"title", "reason", "received_at", "fingerprint"}

@@ -2330,6 +2330,33 @@ table.quality tbody tr:hover td {
 .form-panel .section-title {
   padding: 0;
 }
+/* The workspaces home: the "Yours" list and the "New workspace" form, one above the other at the
+   same width (the form is capped, so the list is too) with a gap between them. */
+.ws-home {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 760px;
+}
+.ws-home .form-panel {
+  margin-bottom: 0; /* the gap spaces the stack; no trailing margin */
+}
+/* Each workspace on one row: name, its role as a chip at its own width (not a full-width bar), id. */
+.ws-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ws-list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
 fieldset.field {
   border: 0;
   padding: 0;
@@ -3232,6 +3259,12 @@ table.quality tfoot td {
 .plan-card:focus-within {
   box-shadow: var(--focus);
 }
+/* The price line. Same size as the card's other lines (some plans' prices are a sentence, not a
+   figure, so a larger size made Lite and Full look bigger than Self-hosted); weight carries it. */
+.plan-price {
+  font-size: var(--fs-0);
+  font-weight: 600;
+}
 .row-gap {
   display: flex;
   gap: 10px;
@@ -3344,6 +3377,7 @@ table.quality tfoot td {
   border-radius: 14px;
   overflow: hidden;
   margin-bottom: 24px;
+  background: #0b1a2e; /* the banner's navy, so the greeting has a dark ground even before the image loads */
 }
 .today-hero img {
   display: block;
@@ -3351,20 +3385,44 @@ table.quality tfoot td {
   height: 148px;
   object-fit: cover;
 }
+/* A scrim that's dark on the left, where the greeting sits, and clears to the right, where the
+   VALXEL wordmark is: white text never lands unreadably on the white wordmark. */
+.today-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(11, 26, 46, 0.92) 0%,
+    rgba(11, 26, 46, 0.82) 30%,
+    rgba(11, 26, 46, 0.35) 52%,
+    rgba(11, 26, 46, 0) 70%
+  );
+  pointer-events: none;
+}
 .today-hero .hero-text {
   position: absolute;
   inset: 0;
+  z-index: 1; /* above the scrim */
   display: flex;
   flex-direction: column;
   justify-content: center;
   padding: 20px 28px;
+  max-width: 62%; /* keep the greeting clear of the wordmark */
   color: #fff;
 }
 .today-hero h1 {
   font-size: 26px;
+  text-shadow: 0 1px 3px rgba(11, 26, 46, 0.55);
 }
 .today-hero p {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 3px rgba(11, 26, 46, 0.5);
+}
+@media (max-width: 860px) {
+  .today-hero .hero-text {
+    max-width: 100%;
+  }
 }
 .today-grid {
   display: grid;

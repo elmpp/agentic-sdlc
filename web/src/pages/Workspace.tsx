@@ -62,74 +62,78 @@ export function WorkspacesPage() {
           {err}
         </p>
       )}
-      {list && list.length > 0 && (
-        <section className="panel" aria-labelledby="h-mine">
-          <h2 id="h-mine" className="section-title">
-            Yours
+      <div className="ws-home">
+        {list && list.length > 0 && (
+          <section className="panel" aria-labelledby="h-mine">
+            <h2 id="h-mine" className="section-title">
+              Yours
+            </h2>
+            <ul className="ws-list">
+              {list.map((w) => (
+                <li key={w.id}>
+                  <Link to={`/workspaces/${w.id}`}>
+                    <strong>{w.name}</strong>
+                  </Link>
+                  <span className="chip plain">{w.role}</span>
+                  <span className="small muted mono">{w.id}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <section className="panel form-panel" aria-labelledby="h-new">
+          <h2 id="h-new" className="section-title">
+            New workspace
           </h2>
-          <ul className="ext-list">
-            {list.map((w) => (
-              <li key={w.id}>
-                <Link to={`/workspaces/${w.id}`}>
-                  <strong>{w.name}</strong>
-                </Link>{" "}
-                <span className="chip plain">{w.role}</span> <span className="small muted mono">{w.id}</span>
-              </li>
-            ))}
-          </ul>
+          <form className="stack pad" onSubmit={create}>
+            <label className="field">
+              Name
+              <input
+                value={form.name}
+                required
+                maxLength={80}
+                placeholder="Acme Farms"
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    name: e.target.value,
+                    id:
+                      form.id ||
+                      e.target.value
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, "-")
+                        .replace(/^-|-$/g, ""),
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              Id
+              <input
+                value={form.id}
+                required
+                pattern="[a-z0-9][a-z0-9\-]{2,39}"
+                className="mono"
+                onChange={(e) => setForm({ ...form, id: e.target.value })}
+              />
+              <span className="small muted">lowercase letters, digits and dashes; can't change later</span>
+            </label>
+            <label className="field">
+              Plan
+              <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}>
+                <option value="lite">Lite</option>
+                <option value="full">Full</option>
+                <option value="self-hosted">Self-hosted</option>
+              </select>
+            </label>
+            <div className="submit-row">
+              <button className="btn" type="submit">
+                Create workspace
+              </button>
+            </div>
+          </form>
         </section>
-      )}
-      <section className="panel form-panel" aria-labelledby="h-new">
-        <h2 id="h-new" className="section-title">
-          New workspace
-        </h2>
-        <form className="stack pad" onSubmit={create}>
-          <label className="field">
-            Name
-            <input
-              value={form.name}
-              required
-              maxLength={80}
-              placeholder="Acme Farms"
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  name: e.target.value,
-                  id:
-                    form.id ||
-                    e.target.value
-                      .toLowerCase()
-                      .replace(/[^a-z0-9]+/g, "-")
-                      .replace(/^-|-$/g, ""),
-                })
-              }
-            />
-          </label>
-          <label className="field">
-            Id <span className="small muted">lowercase letters, digits and dashes; can't change later</span>
-            <input
-              value={form.id}
-              required
-              pattern="[a-z0-9][a-z0-9\-]{2,39}"
-              className="mono"
-              onChange={(e) => setForm({ ...form, id: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            Plan
-            <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}>
-              <option value="lite">Lite</option>
-              <option value="full">Full</option>
-              <option value="self-hosted">Self-hosted</option>
-            </select>
-          </label>
-          <div className="submit-row">
-            <button className="btn" type="submit">
-              Create workspace
-            </button>
-          </div>
-        </form>
-      </section>
+      </div>
     </>
   );
 }
@@ -757,7 +761,10 @@ function Connections({ ws, admin }: { ws: string; admin: boolean }) {
                   </p>
                 )}
                 {admin && (
-                  <button className="small-btn" onClick={() => disconnect(t.tool, c.account, t.name)}>
+                  <button
+                    className="btn secondary small-btn"
+                    onClick={() => disconnect(t.tool, c.account, t.name)}
+                  >
                     Disconnect
                   </button>
                 )}

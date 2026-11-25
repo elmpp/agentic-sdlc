@@ -96,7 +96,7 @@ function ChoosePlan({ onChanged }: { onChanged: () => void }) {
               />
               <strong>{p.name}</strong>
               <span className="small">{p.for_whom}</span>
-              <span>{p.price}</span>
+              <span className="plan-price">{p.price}</span>
               <span className="small muted">
                 Card: {p.card_when}. Sign in with {p.sign_in}.
               </span>
@@ -166,7 +166,7 @@ function ChoosePlan({ onChanged }: { onChanged: () => void }) {
               />
             </label>
             <label className="field">
-              Id <span className="small muted">lowercase letters, digits and dashes; can't change later</span>
+              Id
               <input
                 value={form.id}
                 required
@@ -174,6 +174,7 @@ function ChoosePlan({ onChanged }: { onChanged: () => void }) {
                 className="mono"
                 onChange={(e) => setForm({ ...form, id: e.target.value })}
               />
+              <span className="small muted">lowercase letters, digits and dashes; can't change later</span>
             </label>
             <div className="submit-row">
               <button className="btn" type="submit" disabled={busy}>

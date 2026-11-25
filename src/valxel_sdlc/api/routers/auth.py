@@ -196,7 +196,11 @@ def build(ctx: SimpleNamespace) -> APIRouter:
                 # The web app sends its spans to /otlp/v1/traces when this is on (web/src/telemetry.ts).
                 "tracing": bool(tel is not None and tel.enabled and tel.cfg.endpoint),
                 # The tool's owners (VALXEL_EVAL_APPROVERS): its health across products, drift, safe mode.
-                "tool_owner": tool_owner(user)}
+                "tool_owner": tool_owner(user),
+                # Members of the platform's org see platform-only things (unmatched signals): the web app
+                # reads this so it never calls a platform-only endpoint for everyone else (403), which
+                # would log a console error (api/routers/signals.py, web/src/pages/Incidents.tsx).
+                "platform": user.member_of(eng().services.settings.platform.org)}
 
     # --- governance and features ---
     @api.get("/healthz")

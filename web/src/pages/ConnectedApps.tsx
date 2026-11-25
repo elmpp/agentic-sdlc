@@ -126,7 +126,10 @@ export function ConnectedAppsPage({ me }: { me: Me }) {
                   {c.status === "needs_attention" && <p className="error-note">{c.last_error}</p>}
                   {admin && (
                     <p>
-                      <button className="small-btn" onClick={() => disconnect(t.tool, c.account, t.name)}>
+                      <button
+                        className="btn secondary small-btn"
+                        onClick={() => disconnect(t.tool, c.account, t.name)}
+                      >
                         Disconnect
                       </button>
                     </p>

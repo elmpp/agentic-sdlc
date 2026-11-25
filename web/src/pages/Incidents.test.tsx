@@ -237,7 +237,7 @@ describe("IncidentsPage", () => {
     second.unmount();
   });
 
-  it("shows unmatched signals with count, link and reason", async () => {
+  it("shows unmatched signals with count, link and reason to a platform-org member", async () => {
     vi.mocked(api.incidents).mockResolvedValue([row()]);
     vi.mocked(api.unmatchedSignals).mockResolvedValue({
       count: 1,
@@ -252,7 +252,7 @@ describe("IncidentsPage", () => {
         },
       ],
     });
-    renderList();
+    renderList({ ...me, platform: true });
     expect(await screen.findByText("Signals that matched no product (1)")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Mystery alert" })).toHaveAttribute(
       "href",
@@ -261,11 +261,32 @@ describe("IncidentsPage", () => {
     expect(screen.getByText(/Didn't match because no product matched/)).toBeInTheDocument();
   });
 
-  it("hides the unmatched section when the call fails (403) or is empty", async () => {
+  it("hides the unmatched section for a platform member when the call fails (403) or is empty", async () => {
     vi.mocked(api.incidents).mockResolvedValue([row()]);
     vi.mocked(api.unmatchedSignals).mockRejectedValue(new Error("forbidden"));
-    renderList();
+    renderList({ ...me, platform: true });
     await screen.findByText("Triage is down");
+    expect(screen.queryByText(/Signals that matched no product/)).not.toBeInTheDocument();
+  });
+
+  it("never calls unmatched signals for someone outside the platform org", async () => {
+    vi.mocked(api.incidents).mockResolvedValue([row()]);
+    vi.mocked(api.unmatchedSignals).mockResolvedValue({
+      count: 1,
+      signals: [
+        {
+          source: "sentry",
+          title: "Mystery alert",
+          fingerprint: "fp-x",
+          url: "https://example.com/alert",
+          reason: "no product matched",
+          received_at: "2026-11-10T08:00:00Z",
+        },
+      ],
+    });
+    renderList(); // default me has no platform membership
+    await screen.findByText("Triage is down");
+    expect(vi.mocked(api.unmatchedSignals)).not.toHaveBeenCalled();
     expect(screen.queryByText(/Signals that matched no product/)).not.toBeInTheDocument();
   });
 
@@ -588,7 +609,7 @@ describe("IncidentPage", () => {
         },
       ],
     });
-    renderList();
+    renderList({ ...me, platform: true });
     expect(await screen.findByText("Mystery alert")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Mystery alert" })).not.toBeInTheDocument();
   });
