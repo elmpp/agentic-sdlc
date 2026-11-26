@@ -22,7 +22,7 @@ from valxel_sdlc.api.app import create_app
 from valxel_sdlc.config import load_settings
 from valxel_sdlc.engine import FeatureEngine
 from valxel_sdlc.governance import GovernanceError
-from valxel_sdlc.integrations.github import GitHubRest
+from valxel_sdlc.integrations.github import GitHubRest, StubGitHub
 from valxel_sdlc.integrations.mcp_client import McpHttp
 from valxel_sdlc.integrations.openchoreo import OpenChoreoMcp
 from valxel_sdlc.services import DeliveryConfigError, build_services, default_delivery
@@ -443,6 +443,39 @@ def test_live_delivery_lists_what_is_missing(monkeypatch, tmp_path, gov_root):
                       governance_source="local", governance_root=gov_root)
     with pytest.raises(DeliveryConfigError, match="VALXEL_GITHUB_APP_ID.*VALXEL_OPENCHOREO_MCP_URL"):
         default_delivery(s)
+
+
+def test_the_provisioning_worker_starts_without_the_delivery_app(monkeypatch, tmp_path, gov_root):
+    """Security S4: the provisioning worker signs only for the Provisioning App and is deliberately
+    not given the Delivery App's key (the VM bundle mounts only VALXEL_GITHUB_PROVISIONER_PRIVATE_KEY
+    to it). It never uses the Delivery GitHub client, so `delivery_github=False` must not demand the
+    Delivery App at start-up — while still wiring the real OpenChoreo it registers components with."""
+    monkeypatch.setenv("VALXEL_DELIVERY", "live")
+    monkeypatch.setenv("VALXEL_PROVISIONING", "queue")  # the VM bundle queues provisioning to this worker
+    for v in ("VALXEL_GITHUB_APP_ID", "VALXEL_GITHUB_APP_KMS_KEY_ID", "VALXEL_GITHUB_APP_PRIVATE_KEY",
+              "VALXEL_GITHUB_APP_PRIVATE_KEY_FILE"):
+        monkeypatch.delenv(v, raising=False)  # the Delivery App is absent, as it is for this worker
+    monkeypatch.setenv("VALXEL_OPENCHOREO_MCP_URL", "https://oc.example/mcp")
+    monkeypatch.setenv("VALXEL_OPENCHOREO_TOKEN_URL", "https://oc.example/oauth2/token")
+    monkeypatch.setenv("VALXEL_OPENCHOREO_CLIENT_SECRET", "sekret")
+
+    def settings():  # reloaded each time, since the OpenChoreo URL is read from the env at load
+        return load_settings(mode="stub", database_url="", artifact_dir=tmp_path / "a",
+                             governance_source="local", governance_root=gov_root)
+
+    # The API and worker processes (delivery_github=True, the default) still refuse to start without it.
+    with pytest.raises(DeliveryConfigError, match="VALXEL_GITHUB_APP_ID"):
+        default_delivery(settings())
+
+    # The provisioning worker starts: a stub Delivery GitHub it never touches, the real OpenChoreo it does.
+    github, openchoreo = default_delivery(settings(), delivery_github=False)
+    assert isinstance(github, StubGitHub) and isinstance(openchoreo, OpenChoreoMcp)
+    assert isinstance(build_services(settings(), delivery_github=False).github, StubGitHub)  # full engine build
+
+    # OpenChoreo is still required even for the worker: its absence fails, but the Delivery App is not named.
+    monkeypatch.delenv("VALXEL_OPENCHOREO_MCP_URL")
+    with pytest.raises(DeliveryConfigError, match=r"^(?!.*VALXEL_GITHUB_APP_ID).*VALXEL_OPENCHOREO_MCP_URL"):
+        default_delivery(settings(), delivery_github=False)
 
 
 def test_github_webhook_is_verified_and_resumes_the_feature(monkeypatch, engine, services):

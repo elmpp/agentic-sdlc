@@ -852,7 +852,10 @@ def _provisioner(args) -> int:
     if not github_app_configured(app="provisioner"):
         raise SystemExit("valxel provisioner needs the Provisioning App: VALXEL_GITHUB_PROVISIONER_APP_ID and "
                          "VALXEL_GITHUB_PROVISIONER_APP_KMS_KEY_ID (or a key in the secret store)")
-    engine, _ = create_engine_from_env()
+    # This worker signs only for the Provisioning App and is deliberately not given the Delivery App's
+    # key (security S4); it builds its own Provisioning-App GitHub client below and never uses the
+    # Delivery client. So build the engine without demanding a Delivery App it must not hold.
+    engine, _ = create_engine_from_env(delivery_github=False)
     services = engine.services
     tokens = github_app_tokens(api=services.settings.github_api, permissions=PROVISIONING_PERMISSIONS, app="provisioner")
     github = GitHubRest(tokens, api=services.settings.github_api)
