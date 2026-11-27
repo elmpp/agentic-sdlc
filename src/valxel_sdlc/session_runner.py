@@ -296,7 +296,18 @@ def _failed(exc: Exception) -> dict:
     """What the tool hears about a failed session: its kind, and whether trying again could work."""
     from .gateway import is_transient
 
-    return {"ok": False, "error": type(exc).__name__, "transient": is_transient(str(exc))}
+    out = {"ok": False, "error": type(exc).__name__, "transient": is_transient(str(exc))}
+    # A Claude Code result error says WHY (claude_agent_sdk.ResultError: subtype / terminal_reason /
+    # api_error_status / errors / "API Error: ..." prose). The session's own log dies with its container,
+    # so hand the reason to the tool (bounded; no secrets travel in these fields).
+    detail = {k: getattr(exc, k, None) for k in ("subtype", "terminal_reason", "api_error_status")}
+    detail = {k: v for k, v in detail.items() if v not in (None, "")}
+    errors = [str(e)[:300] for e in (getattr(exc, "errors", None) or [])][:3]
+    result = (getattr(exc, "result", None) or "")[:500]
+    if detail or errors or result:
+        out["detail"] = {**detail, **({"errors": errors} if errors else {}), **({"result": result} if result else {})}
+        out["error"] = f"{out['error']} ({', '.join(f'{k}={v}' for k, v in detail.items())}){': ' + result if result else ''}"
+    return out
 
 
 # --------------------------------------------------------------------------- executors
