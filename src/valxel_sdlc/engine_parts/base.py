@@ -76,7 +76,7 @@ class PostgresIndex:
 
     def all(self) -> list[dict]:
         with self.pool.connection() as conn:
-            rows = conn.execute("SELECT feature_id, product_id, title, seq, kind FROM valxel_features "
+            rows = conn.execute("SELECT feature_id, product_id, title, seq, kind, workspace FROM valxel_features "
                                 "ORDER BY created_at").fetchall()
         return [dict(r) for r in rows]
 
