@@ -194,6 +194,12 @@ def _conditions() -> dict[str, str]:
     out |= {tbl: (f"valxel_product_visible({tbl}.product_id) or (not exists (select 1 from valxel_tenancy m "
                   f"where m.product_id = {tbl}.product_id) and valxel_thread_visible({tbl}.feature_id))")
             for tbl in THREAD_FALLBACK}
+    # The usage ledger also says whose call it was: an inception's calls are tagged with the inception's
+    # own workspace but a pseudo feature id (inception-<slug>), so an unmapped product may go by that too.
+    out["valxel_usage"] = ("valxel_product_visible(valxel_usage.product_id) or (not exists (select 1 from "
+                           "valxel_tenancy m where m.product_id = valxel_usage.product_id) and "
+                           "(valxel_thread_visible(valxel_usage.feature_id) or (valxel_usage.workspace <> '' "
+                           "and valxel_usage.workspace = any (valxel_scope()))))")
     out |= {t: f"valxel_thread_visible({col})" for t, col in BY_THREAD.items()}
     out |= {t: "valxel_platform() or (workspace <> '' and workspace = any (valxel_scope()))" for t in BY_WORKSPACE}
     out |= {t: "valxel_platform()" for t in PLATFORM_ONLY}

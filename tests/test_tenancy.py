@@ -190,8 +190,15 @@ def test_an_inception_thread_records_usage_in_its_own_workspace(tenant_dsn, sett
             assert conn.execute("select count(*) as n from valxel_usage").fetchone()["n"] == 1
         with bound(DENTAL), pool.connection() as conn:
             assert conn.execute("select count(*) as n from valxel_usage").fetchone()["n"] == 0
-            with pytest.raises(psycopg.errors.InsufficientPrivilege):  # another workspace's inception
-                conn.execute(row, ("INCEPTION", "INCEPTION-PRD-1", DENTAL))
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):  # claiming another workspace's inception
+                conn.execute(row, ("INCEPTION", "INCEPTION-PRD-1", CLINIC))
+        with bound(CLINIC), pool.connection() as conn:  # as inception/run tags it: the new product's id,
+            conn.execute(row, ("TNOTE", "inception-tiny-notes", CLINIC))  # a pseudo feature id, its workspace
+        with bound(DENTAL), pool.connection() as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(row, ("TNOTE", "inception-tiny-notes", CLINIC))
+        with bound(CLINIC), pool.connection() as conn:
+            assert conn.execute("select count(*) as n from valxel_usage").fetchone()["n"] == 2
         with bound(CLINIC), pool.connection() as conn:  # a mapped product can't ride on one's own thread
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(row, ("FARM", "CLN-FEAT-1", CLINIC))

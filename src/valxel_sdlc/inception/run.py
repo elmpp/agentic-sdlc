@@ -107,7 +107,7 @@ def _tags(vision: Vision, doc: str, role: str, data_class: str) -> CallTags:
     pid = vision.product_id or "INCEPTION"
     slug = re.sub(r"[^a-z0-9]+", "-", vision.name.lower()).strip("-")[:40] or "product"
     return CallTags(product_id=pid, feature_id=f"inception-{slug}", phase=f"inception_{doc}", role=role,
-                    data_class=data_class, workspace=WORKSPACE, prompt_version=f"inception_{doc}@1")
+                    data_class=data_class, workspace=vision.workspace or WORKSPACE, prompt_version=f"inception_{doc}@1")
 
 
 def write(services, vision: Vision, doc: str, ctx: dict, *, parents: dict[str, str], constitution: str,
