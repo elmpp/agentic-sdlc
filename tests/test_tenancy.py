@@ -58,6 +58,9 @@ def test_each_workspace_sees_only_its_rows_and_an_unscoped_query_sees_none(tenan
                 index.add("FARM-FEAT-2", "FARM", "Sneaky", 2, workspace=SHARED)
         with bound([CLINIC, SHARED]):
             assert len(index.all()) == 2
+            # The row says whose it is: engine.workspace_of reads it from here, and a thread whose product
+            # isn't in the registry (an inception) has no other source for its workspace.
+            assert {r["feature_id"]: r["workspace"] for r in index.all()} == {"CLN-FEAT-1": CLINIC, "FARM-FEAT-1": SHARED}
         assert index.all() == []  # no scope: nothing
         with bound(PLATFORM):
             assert index.next_number("CLN") == 2
