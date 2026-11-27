@@ -62,6 +62,16 @@ class ModelResponse:
     served_model: str = ""
 
 
+class BudgetExhausted(RuntimeError):
+    """An agent session stopped because it reached the dollar cap it was given (Claude Code
+    `error_max_budget_usd`). Not a fault to retry: the same cap stops the next session the same way.
+    `spent_usd` is what the session reported spending (its cap when it didn't say)."""
+
+    def __init__(self, message: str, spent_usd: float = 0.0) -> None:
+        super().__init__(message)
+        self.spent_usd = float(spent_usd or 0.0)
+
+
 class ProviderUnavailable(RuntimeError):
     """The provider could not take the call right now (rate limited, overloaded, down, timed out).
     Not raised for a bad request or a refusal: those would fail the same way elsewhere."""
