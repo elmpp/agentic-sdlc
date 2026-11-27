@@ -1237,7 +1237,7 @@ def build_build_subgraph(services):
                       + DESIGN_ISSUE.replace("don't work around it", "don't block the code for it")
                       + f"\n\n{structured.instruction(structured.ReviewReply)}\n\nThe pull request description:\n"
                       + untrusted.wrap("pull-request-description", r["summary"])),
-                stub_text=json.dumps({"approve": True, "blocking": [], "notes": [], "score": 0.9}), max_tokens=1024,
+                stub_text=json.dumps({"approve": True, "blocking": [], "notes": [], "score": 0.9}), max_tokens=4096,
                 schema=structured.schema(structured.ReviewReply),
             )
             reply, error = structured.parse(res.text, structured.ReviewReply)
@@ -1267,7 +1267,7 @@ def build_build_subgraph(services):
             if second.role:
                 # Another model reads the same PR with the same instructions and reply format.
                 sres = call_agent(services, role=second.role, phase="build", ctx=for_task(ctx, r), skills=spec.critic_skills,
-                                  tail=review_tail, max_tokens=1024, schema=structured.schema(structured.ReviewReply),
+                                  tail=review_tail, max_tokens=4096, schema=structured.schema(structured.ReviewReply),
                                   stub_text=json.dumps({"approve": True, "blocking": [], "notes": [], "score": 0.9}))
                 reviews[tid] = merge_second_opinion(
                     reviews[tid], sres, second.role, services.settings.role(sres.role or second.role).model,
@@ -1279,7 +1279,7 @@ def build_build_subgraph(services):
                 # Pilot, or safe mode on build: another reviewer reads the same PR; its verdict is
                 # kept and, in safe mode, shown at G5.
                 sres = call_agent(services, role="reviewer_shadow", phase="build", ctx=for_task(ctx, r), skills=spec.critic_skills,
-                                  tail=review_tail, max_tokens=1024, schema=structured.schema(structured.ReviewReply),
+                                  tail=review_tail, max_tokens=4096, schema=structured.schema(structured.ReviewReply),
                                   stub_text=json.dumps({"approve": True, "blocking": [], "notes": [], "score": 0.85}))
                 sreply, _ = structured.parse(sres.text, structured.ReviewReply)
                 approve = bool(sreply and sreply.approve and not sreply.blocking)
