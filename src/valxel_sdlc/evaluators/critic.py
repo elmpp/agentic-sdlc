@@ -40,14 +40,33 @@ class CriticVerdict:
 CRITIC_MAX_TOKENS = 8192
 
 
+_PUNCT = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-",
+                        "\u2014": "-", "\u2011": "-", "\u00a0": " "})
+# A critic quoting several places at once joins them with an ellipsis ("M1: ... M2: ...").
+_ELLIPSIS = re.compile(r"\s*(?:\.\s*\.\s*\.|\u2026|\[\s*(?:\.\.\.|\u2026)\s*\])\s*")
+
+
 def _plain(text: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[*_`>#]", "", text or "")).strip().lower()
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", (text or "").translate(_PUNCT))  # [label](url) -> label
+    return re.sub(r"\s+", " ", re.sub(r"[*_`>#|]", "", text)).strip().lower()
 
 
 def quoted(evidence: str, content: str) -> bool:
-    """Whether the quote is really in the document (ignoring case, spacing and Markdown marks)."""
-    q = _plain(evidence)
-    return len(q) >= 3 and q in _plain(content)
+    """Whether the quote is really in the document (ignoring case, spacing, Markdown marks and curly
+    quotes or dashes). An ellipsis joins excerpts: each one must be in the document, in order, and
+    together they must still say something (3+ characters)."""
+    doc = _plain(content)
+    parts = [_plain(p).strip(" \"'") for p in _ELLIPSIS.split(evidence or "")]
+    parts = [p for p in parts if p]
+    if sum(len(p) for p in parts) < 3:
+        return False
+    at = 0
+    for part in parts:
+        i = doc.find(part, at)
+        if i < 0:
+            return False
+        at = i + len(part)
+    return True
 
 
 def stub_verdict(content: str, phase: str = "", items: tuple[rubrics.Item, ...] | None = None) -> str:
