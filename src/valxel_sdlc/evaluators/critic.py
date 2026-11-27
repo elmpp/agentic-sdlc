@@ -34,6 +34,11 @@ class CriticVerdict:
     legacy_score: float = 0.0  # the critic's own 0-1 score, for comparison
 
 
+# The verdict is a JSON checklist (one entry per rubric item, with evidence): 1024 tokens truncated it on
+# real models (vx-eval: Opus replies hit exactly 1024 three loops running -> "no JSON object" -> escalation).
+CRITIC_MAX_TOKENS = 4096
+
+
 def _plain(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[*_`>#]", "", text or "")).strip().lower()
 
@@ -109,7 +114,7 @@ def critique(services, *, phase: str, rubric_skills: tuple[str, ...], content: s
                               skills_dir=skills_dir_of(services, variant), caps=services.settings.context_caps)
         runtime = services.runtime_for(role, variant) if variant else services.runtime_for(role)
         res = runtime.run(AgentTask(
-            role=role, phase=phase, tags=tags, layers=layers, skills=tuple(rubric_skills), stub_text=stub_verdict(content, phase, items), max_tokens=1024,
+            role=role, phase=phase, tags=tags, layers=layers, skills=tuple(rubric_skills), stub_text=stub_verdict(content, phase, items), max_tokens=CRITIC_MAX_TOKENS,
             schema=structured.schema(structured.CriticReply)))
         tokens, cost = tokens + res.tokens, cost + res.cost_usd
         reply, error = structured.parse(res.text, structured.CriticReply)
