@@ -302,6 +302,9 @@ def _failed(exc: Exception) -> dict:
     # so hand the reason to the tool (bounded; no secrets travel in these fields).
     detail = {k: getattr(exc, k, None) for k in ("subtype", "terminal_reason", "api_error_status")}
     detail = {k: v for k, v in detail.items() if v not in (None, "")}
+    cost = (getattr(exc, "data", None) or {}).get("total_cost_usd") if isinstance(getattr(exc, "data", None), dict) else None
+    if isinstance(cost, (int, float)):
+        detail["total_cost_usd"] = round(float(cost), 4)
     errors = [str(e)[:300] for e in (getattr(exc, "errors", None) or [])][:3]
     result = (getattr(exc, "result", None) or "")[:500]
     if detail or errors or result:

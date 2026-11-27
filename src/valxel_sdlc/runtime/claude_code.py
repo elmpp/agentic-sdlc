@@ -216,6 +216,12 @@ class ClaudeCodeRuntime:
                                        plugins_on=bool(self.plugins_for(task.role)))
         out = session_runner.run_with_steps(spec, steps_for(task))
         if not out.get("ok"):
+            detail = out.get("detail") or {}
+            if detail.get("subtype") == "error_max_budget_usd" or detail.get("terminal_reason") == "budget_exhausted":
+                from ..gateway.providers import BudgetExhausted
+
+                raise BudgetExhausted(f"claude_code: the session reached its budget ({out.get('error')})",
+                                      spent_usd=detail.get("total_cost_usd") or kwargs.get("max_budget_usd") or 0.0)
             if out.get("transient"):
                 raise ProviderUnavailable(f"claude_code: the session's provider was unavailable ({out.get('error')})")
             raise RuntimeError(f"the session failed in its sandbox: {out.get('error')}")

@@ -30,6 +30,7 @@ from ..template_contract import roles_with
 from ..evaluators import critique, run_checks, weakening
 from ..agents import formats, structured, untrusted
 from ..gateway import CallTags, ProviderUnavailable
+from ..gateway.providers import BudgetExhausted
 from ..repo_roles import REPO_ORDER
 from ..runtime import AgentResult, AgentTask
 from ..state import FeatureState, PhaseState
@@ -562,9 +563,18 @@ def build_phase_subgraph(phase: str, services):
                     from .. import workspace
 
                     tail = workspace.describe(co) + "\n\n" + tail
-                res = call_agent(services, role=spec.role, phase=phase, ctx=ctx, skills=spec.skills, tail=tail,
-                                 stub_text=template(ctx, defective), budget_usd=left, cwd=(co or {}).get("root"),
-                                 box=workspace.session_box(co) if co else None)
+                try:
+                    res = call_agent(services, role=spec.role, phase=phase, ctx=ctx, skills=spec.skills, tail=tail,
+                                     stub_text=template(ctx, defective), budget_usd=left, cwd=(co or {}).get("root"),
+                                     box=workspace.session_box(co) if co else None)
+                except BudgetExhausted as exc:
+                    # The session hit the phase's remaining budget. Retrying would hit it again (on
+                    # vx-eval it looped every 30s, spending each time and recording nothing). Count the
+                    # phase's budget as spent so _finish escalates "token budget exhausted (VX-10)",
+                    # where a person can raise the budget.
+                    log.warning("%s %s: %s", ctx["feature_id"], phase, exc)
+                    return {"attempt": attempt, "draft": {"kind": spec.kind, "content": ""},
+                            "usage": {"tokens": 0, "cost_usd": max(float(left), exc.spent_usd, 0.0) + 0.01}}
         finally:
             if co:
                 from .. import workspace
