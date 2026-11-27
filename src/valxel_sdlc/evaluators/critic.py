@@ -56,7 +56,8 @@ def quoted(evidence: str, content: str) -> bool:
     quotes or dashes). An ellipsis joins excerpts: each one must be in the document, in order, and
     together they must still say something (3+ characters)."""
     doc = _plain(content)
-    parts = [_plain(p).strip(" \"'") for p in _ELLIPSIS.split(evidence or "")]
+    # An excerpt's edges lose stray punctuation: "the way. ... Who:" splits as "the way" / ". who:".
+    parts = [_plain(p).strip(" \"'.,;:") for p in _ELLIPSIS.split(evidence or "")]
     parts = [p for p in parts if p]
     if sum(len(p) for p in parts) < 3:
         return False

@@ -38,3 +38,13 @@ def test_curly_quotes_dashes_and_links():
     assert quoted("Assumed: U1 is the requester — not confirmed", DOC)
     assert quoted("See the roadmap for “GOAL-TNOTE-1”", DOC)
     assert quoted("\"at least 80% of sessions\"", DOC)
+
+
+def test_sentence_stop_next_to_an_ellipsis():
+    """vx-eval TNOTE-FEAT-2: "the way. ... **Who:**" left a stray "." on the second excerpt."""
+    doc = ("## Problem\nOne person wants a single place, without features in the way. The request gives only a "
+           "solution.\n\n- **Who:** a single individual, presumably the requester. This is unconfirmed.\n")
+    assert quoted("One person wants a single place, without features in the way. ... **Who:** a single individual, "
+                  "presumably the requester. This is unconfirmed.", doc)
+    assert quoted("in the way....Who: a single individual", doc)
+    assert not quoted("in the way. ... Who: two individuals", doc)
