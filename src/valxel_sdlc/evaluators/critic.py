@@ -43,6 +43,8 @@ CRITIC_MAX_TOKENS = 8192
 _PUNCT = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-",
                         "\u2014": "-", "\u2011": "-", "\u00a0": " "})
 # A critic quoting several places at once joins them with an ellipsis ("M1: ... M2: ...").
+# Separate quotes: '"A." / "B."' (also ; or | between a closing and an opening quote mark).
+_SEPARATE = re.compile(r"\s+/\s+|[\"\u201d]\s*[;|]\s*[\"\u201c]")
 _ELLIPSIS = re.compile(r"\s*(?:\.\s*\.\s*\.|\u2026|\[\s*(?:\.\.\.|\u2026)\s*\])\s*")
 
 
@@ -51,14 +53,9 @@ def _plain(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[*_`>#|]", "", text)).strip().lower()
 
 
-def quoted(evidence: str, content: str) -> bool:
-    """Whether the quote is really in the document (ignoring case, spacing, Markdown marks and curly
-    quotes or dashes). An ellipsis joins excerpts: each one must be in the document, in order, and
-    together they must still say something (3+ characters)."""
-    doc = _plain(content)
+def _in_order(chunk: str, doc: str) -> bool:
     # An excerpt's edges lose stray punctuation: "the way. ... Who:" splits as "the way" / ". who:".
-    parts = [_plain(p).strip(" \"'.,;:") for p in _ELLIPSIS.split(evidence or "")]
-    parts = [p for p in parts if p]
+    parts = [p for p in (_plain(x).strip(" \"'.,;:") for x in _ELLIPSIS.split(chunk)) if p]
     if sum(len(p) for p in parts) < 3:
         return False
     at = 0
@@ -68,6 +65,17 @@ def quoted(evidence: str, content: str) -> bool:
             return False
         at = i + len(part)
     return True
+
+
+def quoted(evidence: str, content: str) -> bool:
+    """Whether the quote is really in the document (ignoring case, spacing, Markdown marks and curly
+    quotes or dashes). Critics join excerpts with an ellipsis (each must be in the document, in
+    order) and cite separate quotes joined by " / " (each must be in the document, anywhere);
+    JSON-escaped quote marks are read as quote marks."""
+    doc = _plain(content)
+    ev = re.sub(r"\\(?=[\"'])", "", evidence or "")
+    chunks = [c for c in _SEPARATE.split(ev) if c.strip(" \"'")]
+    return bool(chunks) and all(_in_order(c, doc) for c in chunks)
 
 
 def stub_verdict(content: str, phase: str = "", items: tuple[rubrics.Item, ...] | None = None) -> str:
@@ -116,8 +124,8 @@ def critique(services, *, phase: str, rubric_skills: tuple[str, ...], content: s
     items = rubrics.for_request(phase, ctx.get("description", "")) + lessons.checklist(snap.lessons, phase)
     ask = (f"Check this {phase} document against the checklist below and the constitution. Try to refute it: "
            "assume an item isn't met until the document's own words show it is, and look for what is missing as "
-           "hard as for what is wrong. For each item, say whether it is met; when it is, copy a short exact quote "
-           "from the document that shows it (evidence); when it isn't, say specifically why, naming the section "
+           "hard as for what is wrong. For each item, say whether it is met; when it is, copy ONE short, exact, "
+           "contiguous quote from the document that shows it (evidence; no ellipses, no joining quotes); when it isn't, say specifically why, naming the section "
            "or id (AC-2, TASK-3, M1). Also give your overall score from 0 to 1, and notes on what to improve (a "
            "concern you can't tie to the document goes in notes, not as an unmet item)."
            "\n\nChecklist:\n" + rubrics.as_text(items) + "\n\n" + structured.instruction(structured.CriticReply)

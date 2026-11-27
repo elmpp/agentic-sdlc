@@ -48,3 +48,15 @@ def test_sentence_stop_next_to_an_ellipsis():
                   "presumably the requester. This is unconfirmed.", doc)
     assert quoted("in the way....Who: a single individual", doc)
     assert not quoted("in the way. ... Who: two individuals", doc)
+
+
+def test_separate_quotes_joined_by_slash_and_escaped_marks():
+    """vx-eval TNOTE-FEAT-2: '"M1: ..." / "M2: ..."' and JSON-escaped \\" inside a quote."""
+    doc = ('- **M1:** At least 1 note is persisted in at least 80% of sessions.\n'
+           '- **M2:** At least 99% of save attempts end with the note persisted.\n'
+           'Assumed: A "session" is a signed-in session under the 30-minute rule.\n')
+    assert quoted('"M1: At least 1 note is persisted in at least 80% of sessions." / "M2: At least 99% of save '
+                  'attempts end with the note persisted."', doc)
+    assert quoted('"M2: At least 99% of save attempts" / "M1: At least 1 note"', doc)  # separate quotes: any order
+    assert quoted('"Assumed: A \\"session\\" is a signed-in session"', doc)
+    assert not quoted('"M1: At least 1 note" / "M4: invented"', doc)
