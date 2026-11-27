@@ -253,12 +253,17 @@ def resources_instruction(ctx: dict, task: dict) -> str:
     return instruction(ctx, task)
 
 
+# A phase document (an opportunity brief, a PRD with goals, criteria, NFRs and instrumentation) is long:
+# at 4096 output tokens real models stopped mid-document (vx-eval TNOTE-FEAT-1: both spec drafts ended at
+# exactly 4096, so "PRD has no goals / acceptance criteria" twice -> escalation). The budget still caps spend.
+WRITER_MAX_TOKENS = 16384
+
 # Roles that don't produce or review a phase's work: they get no lessons.
 NO_LESSON_ROLES = ("knowledge", "router", "intake")
 
 
 def call_agent(services, *, role: str, phase: str, ctx: dict, skills: tuple[str, ...], tail: str,
-               stub_text: str | None, max_tokens: int = 4096, schema: dict | None = None,
+               stub_text: str | None, max_tokens: int = WRITER_MAX_TOKENS, schema: dict | None = None,
                budget_usd: float | None = None, cwd: str | None = None,
                box: dict | None = None, task_id: str = "", prev_session: dict | None = None,
                resume_tail: str = "", keep_transcript: bool = False, images: tuple = ()) -> AgentResult:
