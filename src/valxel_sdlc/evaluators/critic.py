@@ -35,8 +35,9 @@ class CriticVerdict:
 
 
 # The verdict is a JSON checklist (one entry per rubric item, with evidence): 1024 tokens truncated it on
-# real models (vx-eval: Opus replies hit exactly 1024 three loops running -> "no JSON object" -> escalation).
-CRITIC_MAX_TOKENS = 4096
+# real models (vx-eval: Opus replies hit exactly 1024 three loops running -> "no JSON object" -> escalation),
+# and a 17-item PRD checklist with evidence quotes still reached 4096.
+CRITIC_MAX_TOKENS = 8192
 
 
 def _plain(text: str) -> str:
