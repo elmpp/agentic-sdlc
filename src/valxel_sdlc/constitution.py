@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 
 _FRONT = re.compile(r"^---\n(.*?)\n---\n", re.S)
-_ARTICLE = re.compile(r"\*\*([A-Z]{2,4}-\d+)\*\*")
+_ARTICLE = re.compile(r"\*\*([A-Z]{2,6}-\d+)\*\*")  # product ids are 2-6 letters (inception _PID)
 
 
 class ConstitutionError(ValueError):
