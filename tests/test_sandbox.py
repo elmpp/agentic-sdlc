@@ -163,3 +163,33 @@ def test_protect_process_hides_the_tools_environment_from_same_user_processes():
         return
     assert out[0] != "0"  # the tool's environment: refused
     assert out[1] == "0"  # a session (exec'd) is dumpable again, so its own tools still work
+
+
+def test_sandbox_off_allows_bash_without_a_bwrap_sandbox(monkeypatch):
+    """VALXEL_AGENT_SANDBOX=off (gVisor sessions, where bubblewrap can't run): no Claude Code
+    sandbox, Bash allowed outright, the tool's files still denied; read-only sessions unchanged."""
+    from valxel_sdlc import session_runner
+    from valxel_sdlc.runtime.base import AgentTask
+    from valxel_sdlc.runtime.claude_code import session_options
+
+    class Role:
+        max_turns, max_call_usd = 10, 1.0
+
+    class Layers:
+        def layers(self):
+            return {k: "" for k in ("L2", "L3", "L4", "L5")}
+
+    task = AgentTask(role="coder", phase="build", tags=None, layers=Layers(), stub_text="", cwd="/tmp/w")
+    monkeypatch.delenv("VALXEL_AGENT_SANDBOX", raising=False)
+    boxed = session_options(task, Role(), "x", cwd=None, plugin_dirs=[], home="/tmp/h")
+    assert boxed["sandbox"]["enabled"] and "allow" not in json.loads(boxed["settings"])["permissions"]
+    assert session_runner._allows_bash(boxed["settings"]) is False
+    monkeypatch.setenv("VALXEL_AGENT_SANDBOX", "off")
+    opts = session_options(task, Role(), "x", cwd=None, plugin_dirs=[], home="/tmp/h")
+    perms = json.loads(opts["settings"])["permissions"]
+    assert "sandbox" not in opts and perms["allow"] == ["Bash"] and "Read(//app/**)" in perms["deny"]
+    assert session_runner._allows_bash(opts["settings"]) is True
+    ro = AgentTask(role="architect", phase="architecture", tags=None, layers=Layers(), stub_text="", cwd="/tmp/c", read_only=True)
+    ro_opts = session_options(ro, Role(), "x", cwd=None, plugin_dirs=[], home="/tmp/h")
+    assert "sandbox" not in ro_opts and "allow" not in json.loads(ro_opts["settings"])["permissions"]
+    assert "Bash" in ro_opts["disallowed_tools"]
