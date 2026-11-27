@@ -163,3 +163,35 @@ def test_the_server_works_end_to_end_with_row_level_security_on(tenant_dsn, tmp_
         c.post("/api/auth/dev-login", json={"login": "dentist", "teams": [], "orgs": ["acme-dental"]})
         assert [f for f in c.get("/api/features").json() if f["feature_id"] == fid] == []
         assert c.get(f"/api/features/{fid}").status_code in (403, 404)
+
+
+@needs_db
+def test_an_inception_thread_records_usage_in_its_own_workspace(tenant_dsn, settings):
+    """INCEPTION spans workspaces, so no registry entry maps it: its by-product rows (usage, costs ...)
+    follow the inception thread's workspace instead, and a mapped product can't be borrowed that way."""
+    import psycopg
+
+    from valxel_sdlc.engine import PostgresIndex
+    from valxel_sdlc.gateway import PostgresLedger
+
+    row = ("insert into valxel_usage (ts, product_id, feature_id, phase, role, runtime, provider, model, workspace, "
+           "input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens, cache_ttl, "
+           "prompt_version, prefix_hashes, est_cost_usd, cost_basis, request_id) values (now(), %s, %s, 'plan', "
+           "'architect', 'claude_code', 'anthropic', 'm', %s, 1, 0, 0, 1, '', '', '[]', 0, 'est', 'r')")
+    with _pool(tenant_dsn) as pool:
+        with bound(PLATFORM):
+            index = PostgresIndex(pool)
+            PostgresLedger(pool)
+            tenancy.apply(pool, settings.registry, enforce=True)
+            index.add("INCEPTION-PRD-1", "INCEPTION", "Tiny Notes", 1, kind="inception", workspace=CLINIC)
+            index.add("CLN-FEAT-1", "CLN", "Consent", 1, workspace=CLINIC)
+        with bound(CLINIC), pool.connection() as conn:  # the inception's run records its session's usage
+            conn.execute(row, ("INCEPTION", "INCEPTION-PRD-1", CLINIC))
+            assert conn.execute("select count(*) as n from valxel_usage").fetchone()["n"] == 1
+        with bound(DENTAL), pool.connection() as conn:
+            assert conn.execute("select count(*) as n from valxel_usage").fetchone()["n"] == 0
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):  # another workspace's inception
+                conn.execute(row, ("INCEPTION", "INCEPTION-PRD-1", DENTAL))
+        with bound(CLINIC), pool.connection() as conn:  # a mapped product can't ride on one's own thread
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(row, ("FARM", "CLN-FEAT-1", CLINIC))
