@@ -148,6 +148,11 @@ BY_PRODUCT = ("valxel_usage", "valxel_costs", "valxel_cost_reviews", "valxel_cha
 BY_THREAD = {"checkpoints": "thread_id", "checkpoint_blobs": "thread_id", "checkpoint_writes": "thread_id",
              "valxel_work_items": "feature_id", "valxel_release_joins": "feature_id",
              "valxel_notes": "split_part(key, ':', 2)"}
+# By-product tables that also carry the thread they were written for. A product the registry maps to no
+# workspace (the inception pseudo-product, INCEPTION, which spans workspaces) falls back to that thread's
+# workspace; a mapped product keeps the plain by-product rule, so no row can borrow another product's id.
+THREAD_FALLBACK = ("valxel_usage", "valxel_costs", "valxel_cost_reviews", "valxel_effort", "valxel_corrections",
+                   "valxel_eval_cases", "valxel_metric_readouts", "valxel_gate_outcomes")
 BY_WORKSPACE = ("valxel_features", "valxel_workspace_rows", "valxel_workspace_audit", "valxel_run_queue")
 PLATFORM_ONLY = ("valxel_unmatched_signals",)
 POLICY = "valxel_tenant"
@@ -186,6 +191,9 @@ FUNCTIONS = (
 
 def _conditions() -> dict[str, str]:
     out = {t: "valxel_product_visible(product_id)" for t in BY_PRODUCT}
+    out |= {tbl: (f"valxel_product_visible({tbl}.product_id) or (not exists (select 1 from valxel_tenancy m "
+                  f"where m.product_id = {tbl}.product_id) and valxel_thread_visible({tbl}.feature_id))")
+            for tbl in THREAD_FALLBACK}
     out |= {t: f"valxel_thread_visible({col})" for t, col in BY_THREAD.items()}
     out |= {t: "valxel_platform() or (workspace <> '' and workspace = any (valxel_scope()))" for t in BY_WORKSPACE}
     out |= {t: "valxel_platform()" for t in PLATFORM_ONLY}
