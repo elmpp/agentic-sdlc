@@ -110,10 +110,23 @@ def clean_env(runtime: str, home: str, extra: dict | None = None, base: dict | N
     return {k: v for k, v in session_env(runtime, home, extra, base).items() if v != ""}
 
 
-def claude_settings(workspace: str) -> dict:
-    """Claude Code settings for every session: no hooks, the tool's files unreadable."""
+def claude_settings(workspace: str, *, shell: bool = False) -> dict:
+    """Claude Code settings for every session: no hooks, the tool's files unreadable. ``shell``
+    allows Bash outright, for sessions whose shell runs without Claude Code's sandbox
+    (``agent_sandbox_off``); the Read denials still apply, as deny rules win over allow rules."""
     deny = [f"Read(/{p}/**)" for p in secret_paths()]
-    return {"disableAllHooks": True, "permissions": {"deny": deny}}
+    perms: dict = {"deny": deny, **({"allow": ["Bash"]} if shell else {})}
+    return {"disableAllHooks": True, "permissions": perms}
+
+
+def agent_sandbox_off() -> bool:
+    """``VALXEL_AGENT_SANDBOX=off``: run sessions' shell commands without Claude Code's sandbox.
+    For hosts where bubblewrap can't run at all, such as the VM tier's gVisor (``runsc``)
+    sessions, where creating the network namespace fails (``bwrap: loopback: Failed
+    RTM_NEWADDR``) and so does a plain bind mount; with ``allowUnsandboxedCommands`` off, every
+    command would fail. The session container is then the boundary: gVisor, a read-only root,
+    no capabilities, and a network that reaches only the egress proxy's allowlist."""
+    return os.environ.get("VALXEL_AGENT_SANDBOX", "").strip().lower() == "off"
 
 
 PR_SET_DUMPABLE, PR_GET_DUMPABLE = 4, 3

@@ -94,6 +94,14 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 
 
+def _allows_bash(settings) -> bool:
+    try:
+        perms = (json.loads(settings) if isinstance(settings, str) else settings or {}).get("permissions") or {}
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return "Bash" in (perms.get("allow") or [])
+
+
 def _repo(name: str) -> str:
     """`owner/name` as GitHub spells them, nothing that could walk out of the work area."""
     if not isinstance(name, str) or len(name) > 140 or not _REPO.fullmatch(name) or name.endswith(("/.", "/..")):
@@ -140,7 +148,10 @@ def run_spec(spec: dict, root: Path | None = None, *, query=None, on_step=None) 
         Path(cwd).mkdir(parents=True, exist_ok=True)
         for rc in spec.get("read_checkouts") or []:  # the code an architect reads: as it was, read-only
             read_clone(rc["repo"], rc["sha"], rc["token"], root)
-    options = {**(spec.get("options") or {}), "cwd": cwd, "settings": json.dumps(claude_settings(str(home))),
+    # The tool decided whether this session's shell runs unsandboxed (VALXEL_AGENT_SANDBOX=off);
+    # the settings are rebuilt for this home, so carry that one choice across.
+    shell = _allows_bash((spec.get("options") or {}).get("settings"))
+    options = {**(spec.get("options") or {}), "cwd": cwd, "settings": json.dumps(claude_settings(str(home), shell=shell)),
                "env": {**(spec.get("env") or {}), "HOME": str(home), "TMPDIR": str(home / "tmp"), **NO_SCRIPTS},
                "plugins": [{"type": "local", "path": p} for p in
                            (plugin_dirs_from(os.environ.get("VALXEL_SKILLS_DIR")) if spec.get("plugins") else [])]}

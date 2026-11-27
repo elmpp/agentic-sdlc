@@ -34,7 +34,7 @@ from pathlib import Path
 
 from .. import gateway_sessions, plugins, secret_ring, sessions
 from ..gateway import ModelGateway, ModelResponse, PolicyViolation, ProviderUnavailable, is_transient
-from ..sandbox import claude_sandbox, claude_settings, session_env
+from ..sandbox import agent_sandbox_off, claude_sandbox, claude_settings, session_env
 from .base import AgentResult, AgentTask
 
 log = logging.getLogger(__name__)
@@ -64,13 +64,16 @@ def session_options(task: AgentTask, role, model: str, *, cwd: str | None, plugi
     if len(append.encode()) > APPEND_LIMIT_BYTES:
         log.warning("%s/%s: the appended prompt is %d bytes, near the 128 KiB argument limit; "
                     "trim the feature context", task.phase, task.role, len(append.encode()))
+    # No Claude Code sandbox where bubblewrap can't run (VALXEL_AGENT_SANDBOX=off): Bash is
+    # allowed outright, and the session's container is the boundary (valxel_sdlc.sandbox).
+    unboxed = not task.read_only and agent_sandbox_off()
     return {
         "system_prompt": {"type": "preset", "preset": "claude_code", "append": append,
                           "exclude_dynamic_sections": True},
         "setting_sources": ["project"],
         # No hooks from anywhere (a repository's .claude/settings.json runs nothing), and the tool's
         # own files and secrets unreadable (valxel_sdlc.sandbox).
-        "settings": json.dumps(claude_settings(home or "")),
+        "settings": json.dumps(claude_settings(home or "", shell=unboxed)),
         "plugins": [{"type": "local", "path": p} for p in plugin_dirs],
         "model": model.split("/", 1)[-1],
         "cwd": task.cwd or cwd,
@@ -80,7 +83,7 @@ def session_options(task: AgentTask, role, model: str, *, cwd: str | None, plugi
                            {"CLAUDE_CODE_PROMPT_CACHE_TTL": "1h", **((task.telemetry or {}).get("env") or {})}),
         # Shell commands run in Claude Code's sandbox, network only to the allowlist; a read-only
         # session has no shell to sandbox.
-        **({} if task.read_only else {"sandbox": claude_sandbox()}),
+        **({} if task.read_only or unboxed else {"sandbox": claude_sandbox()}),
         # Caps: a session that runs away stops here, not at the feature's budget.
         "max_turns": task.max_turns or role.max_turns,
         "max_budget_usd": session_cap(task, role),
